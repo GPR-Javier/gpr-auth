@@ -7,4 +7,5 @@ import lombok.Data;
 public class CreateUserRoleRequest {
     @NotBlank private String name;
     private String description;
+    private String color;
 }

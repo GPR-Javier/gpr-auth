@@ -6,4 +6,5 @@ import lombok.Data;
 public class UpdateUserRoleRequest {
     private String name;
     private String description;
+    private String color;
 }

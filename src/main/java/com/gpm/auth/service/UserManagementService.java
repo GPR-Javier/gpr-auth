@@ -7,6 +7,7 @@ import com.gpm.common.exception.ResourceNotFoundException;
 import com.gpm.auth.repository.UserRoleRepository;
 import com.gpm.auth.repository.UserRepository;
 import com.gpm.common.dto.UserDTO;
+import com.gpm.common.dto.UserRoleSummaryDTO;
 import com.gpm.common.entity.UserRole;
 import com.gpm.common.entity.User;
 import com.gpm.common.enums.Role;
@@ -100,7 +101,13 @@ public class UserManagementService {
                 .lastName(user.getLastName())
                 .email(user.getEmail())
                 .role(user.getRole().name())
-                .userRoleNames(user.getUserRoles().stream().map(UserRole::getName).toList())
+                .userRoles(user.getUserRoles().stream()
+                        .map(role -> UserRoleSummaryDTO.builder()
+                                .roleId(role.getId())
+                                .roleName(role.getName())
+                                .roleColor(role.getColor())
+                                .build())
+                        .toList())
                 .active(user.isActive())
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())

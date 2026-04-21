@@ -37,6 +37,7 @@ public class UserRoleService {
         UserRole role = UserRole.builder()
                 .name(request.getName())
                 .description(request.getDescription())
+                .color(request.getColor())
                 .active(true)
                 .build();
         return toDTO(userRoleRepository.save(role));
@@ -55,6 +56,7 @@ public class UserRoleService {
                         .id(r.getId())
                         .name(r.getName())
                         .description(r.getDescription())
+                        .color(r.getColor())
                         .active(true)
                         .build())
                 .toList();
@@ -73,6 +75,9 @@ public class UserRoleService {
         }
         if (request.getDescription() != null) {
             role.setDescription(request.getDescription());
+        }
+        if (request.getColor() != null) {
+            role.setColor(request.getColor());
         }
         return toDTO(userRoleRepository.save(role));
     }
@@ -137,6 +142,7 @@ public class UserRoleService {
                 .id(role.getId())
                 .name(role.getName())
                 .description(role.getDescription())
+                .color(role.getColor())
                 .active(role.isActive())
                 .accessRoles(role.getAccessRoles().stream().map(this::toAccessRoleDTO).toList())
                 .build();
