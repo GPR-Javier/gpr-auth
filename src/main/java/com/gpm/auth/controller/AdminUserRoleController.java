@@ -36,6 +36,12 @@ public class AdminUserRoleController {
         return ResponseEntity.ok(userRoleService.getAllRoles());
     }
 
+    /** Used by FE dropdowns — returns only active user roles (id, name, description) */
+    @GetMapping("/active")
+    public ResponseEntity<List<UserRoleDTO>> getActiveRoles() {
+        return ResponseEntity.ok(userRoleService.getActiveRoles());
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<UserRoleDTO> updateRole(
             @PathVariable Long id,

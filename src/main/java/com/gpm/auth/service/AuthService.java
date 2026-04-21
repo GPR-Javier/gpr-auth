@@ -1,6 +1,6 @@
 package com.gpm.auth.service;
 
-import com.gpm.auth.dto.RefreshRequest;
+import com.gpm.auth.dto.LoginResult;
 import com.gpm.auth.dto.RoleSelectionRequest;
 import com.gpm.auth.entity.RefreshToken;
 import com.gpm.common.exception.InvalidTokenException;
@@ -34,7 +34,7 @@ public class AuthService {
     private final JwtService jwtService;
 
     @Transactional
-    public AuthResponse login(AuthRequest request) {
+    public LoginResult login(AuthRequest request) {
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
         );
@@ -42,22 +42,22 @@ public class AuthService {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new IllegalStateException("User disappeared after authentication"));
 
-        // Multiple user roles — let the client pick one before issuing tokens
         if (user.getUserRoles().size() > 1) {
             List<RoleInfo> availableRoles = user.getUserRoles().stream()
-                    .map(er -> RoleInfo.builder().id(er.getId()).name(er.getName()).build())
+                    .map(er -> RoleInfo.builder().id(er.getId()).name(er.getName()).description(er.getDescription()).build())
                     .toList();
-            return AuthResponse.builder()
+            AuthResponse response = AuthResponse.builder()
                     .requiresRoleSelection(true)
                     .availableRoles(availableRoles)
                     .build();
+            return new LoginResult(response, null, null);
         }
 
         return issueTokens(user, user.getUserRoles().isEmpty() ? null : user.getUserRoles().get(0));
     }
 
     @Transactional
-    public AuthResponse loginWithRole(RoleSelectionRequest request) {
+    public LoginResult loginWithRole(RoleSelectionRequest request) {
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
         );
@@ -73,42 +73,20 @@ public class AuthService {
         return issueTokens(user, selectedRole);
     }
 
-    private AuthResponse issueTokens(User user, UserRole selectedRole) {
-        refreshTokenRepository.revokeAllByUser(user);
-
-        String accessToken = selectedRole != null
-                ? jwtService.generateAccessToken(user, selectedRole)
-                : jwtService.generateAccessToken(user);
-        String refreshToken = jwtService.generateRefreshToken(user);
-
-        refreshTokenRepository.save(RefreshToken.builder()
-                .token(refreshToken)
-                .user(user)
-                .expiresAt(LocalDateTime.now().plusSeconds(604800))
-                .build());
-
-        return buildAuthResponse(user, selectedRole, accessToken, refreshToken);
-    }
-
     @Transactional
-    public AuthResponse refresh(RefreshRequest request) {
-        RefreshToken stored = refreshTokenRepository.findByToken(request.getRefreshToken())
+    public LoginResult refresh(String rawRefreshToken) {
+        RefreshToken stored = refreshTokenRepository.findByToken(rawRefreshToken)
                 .orElseThrow(() -> new InvalidTokenException("Refresh token not found"));
 
-        if (stored.isRevoked()) {
-            throw new InvalidTokenException("Refresh token has been revoked");
-        }
-        if (stored.isExpired()) {
-            throw new InvalidTokenException("Refresh token has expired");
-        }
-        if (!jwtService.validateToken(request.getRefreshToken())) {
-            throw new InvalidTokenException("Refresh token is invalid");
-        }
+        if (stored.isRevoked()) throw new InvalidTokenException("Refresh token has been revoked");
+        if (stored.isExpired()) throw new InvalidTokenException("Refresh token has expired");
+        if (!jwtService.validateToken(rawRefreshToken)) throw new InvalidTokenException("Refresh token is invalid");
 
         User user = stored.getUser();
         String newAccessToken = jwtService.generateAccessToken(user);
+        AuthResponse response = buildAuthResponse(user, null);
 
-        return buildAuthResponse(user, null, newAccessToken, request.getRefreshToken());
+        return new LoginResult(response, newAccessToken, rawRefreshToken);
     }
 
     @Transactional
@@ -128,7 +106,24 @@ public class AuthService {
 
     // ── helpers ──────────────────────────────────────────────────────
 
-    private AuthResponse buildAuthResponse(User user, UserRole selectedRole, String accessToken, String refreshToken) {
+    private LoginResult issueTokens(User user, UserRole selectedRole) {
+        refreshTokenRepository.revokeAllByUser(user);
+
+        String accessToken = selectedRole != null
+                ? jwtService.generateAccessToken(user, selectedRole)
+                : jwtService.generateAccessToken(user);
+        String refreshToken = jwtService.generateRefreshToken(user);
+
+        refreshTokenRepository.save(RefreshToken.builder()
+                .token(refreshToken)
+                .user(user)
+                .expiresAt(LocalDateTime.now().plusSeconds(604800))
+                .build());
+
+        return new LoginResult(buildAuthResponse(user, selectedRole), accessToken, refreshToken);
+    }
+
+    private AuthResponse buildAuthResponse(User user, UserRole selectedRole) {
         List<UserRole> roles = selectedRole != null ? List.of(selectedRole) : user.getUserRoles();
 
         List<String> authorities = roles.stream()
@@ -142,8 +137,6 @@ public class AuthService {
         List<String> userRoleNames = roles.stream().map(UserRole::getName).toList();
 
         return AuthResponse.builder()
-                .token(accessToken)
-                .refreshToken(refreshToken)
                 .role(user.getRole().name())
                 .userRoleNames(userRoleNames)
                 .authorities(authorities)
@@ -159,7 +152,7 @@ public class AuthService {
                 .lastName(user.getLastName())
                 .email(user.getEmail())
                 .role(user.getRole().name())
-                .userRoleNames(user.getUserRoles().stream().map(er -> er.getName()).toList())
+                .userRoleNames(user.getUserRoles().stream().map(UserRole::getName).toList())
                 .active(user.isActive())
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())

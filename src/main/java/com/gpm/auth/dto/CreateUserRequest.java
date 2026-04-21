@@ -13,6 +13,5 @@ public class CreateUserRequest {
     @NotBlank private String lastName;
     @Email @NotBlank private String email;
     @NotBlank private String password;
-    @NotBlank private String employeeId;
     private List<Long> userRoleIds = new ArrayList<>();
 }

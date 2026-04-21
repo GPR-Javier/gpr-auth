@@ -47,6 +47,24 @@ public class UserRoleService {
         return userRoleRepository.findAll().stream().map(this::toDTO).toList();
     }
 
+    /** Lightweight list for dropdowns — only active roles, id + name only */
+    @Transactional(readOnly = true)
+    public List<UserRoleDTO> getActiveRoles() {
+        return userRoleRepository.findAllByActiveTrue().stream()
+                .map(r -> UserRoleDTO.builder()
+                        .id(r.getId())
+                        .name(r.getName())
+                        .description(r.getDescription())
+                        .active(true)
+                        .build())
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<AccessRoleDTO> getAllAccessRoles() {
+        return accessRoleRepository.findAll().stream().map(this::toAccessRoleDTO).toList();
+    }
+
     @Transactional
     public UserRoleDTO updateRole(Long id, UpdateUserRoleRequest request) {
         UserRole role = getOrThrow(id);
@@ -75,7 +93,7 @@ public class UserRoleService {
         boolean alreadyAssigned = role.getAccessRoles().stream()
                 .anyMatch(ar -> ar.getId().equals(accessRole.getId()));
         if (!alreadyAssigned) {
-            role.getAccessRoles().add(accessRole);
+            role.addAccessRole(accessRole);
             userRoleRepository.save(role);
         }
         return toDTO(role);
@@ -84,7 +102,10 @@ public class UserRoleService {
     @Transactional
     public void removeAccessRole(Long roleId, Long accessRoleId) {
         UserRole role = getOrThrow(roleId);
-        role.getAccessRoles().removeIf(ar -> ar.getId().equals(accessRoleId));
+        role.getAccessRoles().stream()
+                .filter(ar -> ar.getId().equals(accessRoleId))
+                .findFirst()
+                .ifPresent(role::removeAccessRole);
         userRoleRepository.save(role);
     }
 

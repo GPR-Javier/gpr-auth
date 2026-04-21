@@ -39,12 +39,15 @@ public class UserManagementService {
                         .orElseThrow(() -> new ResourceNotFoundException("Employee role not found: " + id)))
                 .toList();
 
+        int next = userRepository.findMaxEmployeeIdSequence().orElse(0) + 1;
+        String employeeId = String.format("EMP-%03d", next);
+
         User user = User.builder()
                 .firstName(request.getFirstName())
                 .lastName(request.getLastName())
                 .email(request.getEmail())
                 .password(passwordEncoder.encode(request.getPassword()))
-                .employeeId(request.getEmployeeId())
+                .employeeId(employeeId)
                 .role(Role.EMPLOYEE)
                 .userRoles(userRoles)
                 .active(true)
