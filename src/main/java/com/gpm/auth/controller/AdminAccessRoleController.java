@@ -13,13 +13,13 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/admin/access-roles")
-@PreAuthorize("hasRole('ADMIN')")
 @RequiredArgsConstructor
 public class AdminAccessRoleController {
 
     private final UserRoleService userRoleService;
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN') or hasAuthority('ROLES_AND_PERMISSIONS:VIEW_ROLES') or hasAuthority('ROLES_AND_PERMISSIONS:ASSIGN_ACCESS_ROLE')")
     public ResponseEntity<List<AccessRoleDTO>> getAllAccessRoles() {
         return ResponseEntity.ok(userRoleService.getAllAccessRoles());
     }

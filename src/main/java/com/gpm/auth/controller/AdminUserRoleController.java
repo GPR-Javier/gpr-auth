@@ -18,7 +18,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/admin/user-roles")
-@PreAuthorize("hasRole('ADMIN')")
 @RequiredArgsConstructor
 public class AdminUserRoleController {
 
@@ -27,22 +26,26 @@ public class AdminUserRoleController {
     // ── User role CRUD ────────────────────────────────────────────────
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN') or hasAuthority('ROLES_AND_PERMISSIONS:CREATE_ROLE')")
     public ResponseEntity<UserRoleDTO> createRole(@Valid @RequestBody CreateUserRoleRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(userRoleService.createRole(request));
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN') or hasAuthority('ROLES_AND_PERMISSIONS:VIEW_ROLES')")
     public ResponseEntity<List<UserRoleDTO>> getAllRoles() {
         return ResponseEntity.ok(userRoleService.getAllRoles());
     }
 
     /** Used by FE dropdowns — returns only active user roles (id, name, description) */
     @GetMapping("/active")
+    @PreAuthorize("hasRole('ADMIN') or hasAuthority('ROLES_AND_PERMISSIONS:VIEW_ROLES') or hasAuthority('USER_MANAGEMENT:ASSIGN_ROLES')")
     public ResponseEntity<List<UserRoleDTO>> getActiveRoles() {
         return ResponseEntity.ok(userRoleService.getActiveRoles());
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or hasAuthority('ROLES_AND_PERMISSIONS:EDIT_ROLE')")
     public ResponseEntity<UserRoleDTO> updateRole(
             @PathVariable Long id,
             @RequestBody UpdateUserRoleRequest request
@@ -51,6 +54,7 @@ public class AdminUserRoleController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or hasAuthority('ROLES_AND_PERMISSIONS:DELETE_ROLE')")
     public ResponseEntity<Void> deleteRole(@PathVariable Long id) {
         userRoleService.softDeleteRole(id);
         return ResponseEntity.ok().build();
@@ -59,6 +63,7 @@ public class AdminUserRoleController {
     // ── Access role assignment ────────────────────────────────────────
 
     @PostMapping("/{id}/access-roles")
+    @PreAuthorize("hasRole('ADMIN') or hasAuthority('ROLES_AND_PERMISSIONS:ASSIGN_ACCESS_ROLE')")
     public ResponseEntity<UserRoleDTO> addAccessRole(
             @PathVariable Long id,
             @Valid @RequestBody AssignAccessRoleRequest request
@@ -67,6 +72,7 @@ public class AdminUserRoleController {
     }
 
     @DeleteMapping("/{id}/access-roles/{accessRoleId}")
+    @PreAuthorize("hasRole('ADMIN') or hasAuthority('ROLES_AND_PERMISSIONS:REMOVE_ACCESS_ROLE')")
     public ResponseEntity<Void> removeAccessRole(@PathVariable Long id, @PathVariable Long accessRoleId) {
         userRoleService.removeAccessRole(id, accessRoleId);
         return ResponseEntity.ok().build();
@@ -75,6 +81,7 @@ public class AdminUserRoleController {
     // ── Functionality toggle ──────────────────────────────────────────
 
     @PutMapping("/{id}/access-roles/{accessRoleId}/functionalities/{functionalityId}")
+    @PreAuthorize("hasRole('ADMIN') or hasAuthority('ROLES_AND_PERMISSIONS:TOGGLE_FUNCTIONALITY')")
     public ResponseEntity<FunctionalityDTO> toggleFunctionality(
             @PathVariable Long id,
             @PathVariable Long accessRoleId,

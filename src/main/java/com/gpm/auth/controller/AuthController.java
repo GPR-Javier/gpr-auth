@@ -2,6 +2,7 @@ package com.gpm.auth.controller;
 
 import com.gpm.auth.dto.LoginResult;
 import com.gpm.auth.dto.RoleSelectionRequest;
+import com.gpm.auth.dto.SwitchRoleRequest;
 import com.gpm.auth.service.AuthService;
 import com.gpm.common.dto.AuthRequest;
 import com.gpm.common.dto.AuthResponse;
@@ -74,6 +75,22 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<UserDTO> me(@AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.ok(authService.me(userDetails.getUsername()));
+    }
+
+    /**
+     * Switches the active role for the currently authenticated user — no password required.
+     * Issues a new access-token cookie scoped to the requested role.
+     * Payload: { "userRoleId": 3 }
+     */
+    @PostMapping("/switch-role")
+    public ResponseEntity<AuthResponse> switchRole(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @Valid @RequestBody SwitchRoleRequest request,
+            HttpServletResponse response
+    ) {
+        LoginResult result = authService.switchRole(userDetails.getUsername(), request);
+        setAccessTokenCookie(response, result.accessToken());
+        return ResponseEntity.ok(result.response());
     }
 
     // ── cookie helpers ────────────────────────────────────────────────

@@ -1,6 +1,5 @@
 package com.gpm.auth.dto;
 
-import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -11,7 +10,6 @@ import java.util.List;
 public class CreateUserRequest {
     @NotBlank private String firstName;
     @NotBlank private String lastName;
-    @Email @NotBlank private String email;
     @NotBlank private String password;
     private List<Long> userRoleIds = new ArrayList<>();
 }

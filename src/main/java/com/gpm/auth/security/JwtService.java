@@ -30,7 +30,11 @@ public class JwtService {
     private long refreshTokenExpiry;
 
     public String generateAccessToken(User user) {
-        return buildAccessToken(user, user.getUserRoles());
+        return buildAccessToken(user, user.getActiveUserRoles(java.time.LocalDateTime.now()));
+    }
+
+    public String generateAccessToken(User user, List<UserRole> roles) {
+        return buildAccessToken(user, roles);
     }
 
     /** Generates an access token scoped to a single selected employee role. */

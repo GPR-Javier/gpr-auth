@@ -1,6 +1,7 @@
 package com.gpm.auth.security;
 
 import com.gpm.auth.repository.UserRepository;
+import com.gpm.auth.service.UserRoleAccessResolver;
 import com.gpm.common.entity.Functionality;
 import com.gpm.common.entity.User;
 import com.gpm.common.enums.Role;
@@ -21,6 +22,7 @@ import java.util.List;
 public class CustomUserDetailsService implements UserDetailsService {
 
     private final UserRepository userRepository;
+    private final UserRoleAccessResolver userRoleAccessResolver;
 
     @Override
     @Transactional(readOnly = true)
@@ -46,7 +48,7 @@ public class CustomUserDetailsService implements UserDetailsService {
             return authorities;
         }
 
-        user.getUserRoles().stream()
+        userRoleAccessResolver.resolveActiveUserRoles(user).stream()
                 .flatMap(er -> er.getAccessRoles().stream())
                 .flatMap(ar -> ar.getFunctionalities().stream())
                 .filter(Functionality::isEnabled)

@@ -2,6 +2,7 @@ package com.gpm.auth.service;
 
 import com.gpm.auth.dto.LoginResult;
 import com.gpm.auth.dto.RoleSelectionRequest;
+import com.gpm.auth.dto.SwitchRoleRequest;
 import com.gpm.auth.entity.RefreshToken;
 import com.gpm.common.exception.InvalidTokenException;
 import com.gpm.common.exception.ResourceNotFoundException;
@@ -33,6 +34,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtService jwtService;
+    private final UserRoleAccessResolver userRoleAccessResolver;
 
     @Transactional
     public LoginResult login(AuthRequest request) {
@@ -43,8 +45,10 @@ public class AuthService {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new IllegalStateException("User disappeared after authentication"));
 
-        if (user.getUserRoles().size() > 1) {
-            List<RoleInfo> availableRoles = user.getUserRoles().stream()
+        List<UserRole> activeRoles = userRoleAccessResolver.resolveActiveUserRoles(user);
+
+        if (activeRoles.size() > 1) {
+            List<RoleInfo> availableRoles = activeRoles.stream()
                     .map(er -> RoleInfo.builder().id(er.getId()).name(er.getName()).description(er.getDescription()).build())
                     .toList();
             AuthResponse response = AuthResponse.builder()
@@ -54,7 +58,7 @@ public class AuthService {
             return new LoginResult(response, null, null);
         }
 
-        return issueTokens(user, user.getUserRoles().isEmpty() ? null : user.getUserRoles().get(0));
+        return issueTokens(user, activeRoles.isEmpty() ? null : activeRoles.get(0), activeRoles);
     }
 
     @Transactional
@@ -66,12 +70,14 @@ public class AuthService {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new IllegalStateException("User disappeared after authentication"));
 
-        UserRole selectedRole = user.getUserRoles().stream()
+        List<UserRole> activeRoles = userRoleAccessResolver.resolveActiveUserRoles(user);
+
+        UserRole selectedRole = activeRoles.stream()
                 .filter(er -> er.getId().equals(request.getUserRoleId()))
                 .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("User role not assigned to this user"));
+                .orElseThrow(() -> new ResourceNotFoundException("User role not active for this user"));
 
-        return issueTokens(user, selectedRole);
+        return issueTokens(user, selectedRole, activeRoles);
     }
 
     @Transactional
@@ -84,10 +90,35 @@ public class AuthService {
         if (!jwtService.validateToken(rawRefreshToken)) throw new InvalidTokenException("Refresh token is invalid");
 
         User user = stored.getUser();
-        String newAccessToken = jwtService.generateAccessToken(user);
-        AuthResponse response = buildAuthResponse(user, null);
+        List<UserRole> activeRoles = userRoleAccessResolver.resolveActiveUserRoles(user);
+        String newAccessToken = jwtService.generateAccessToken(user, activeRoles);
+        AuthResponse response = buildAuthResponse(user, null, activeRoles);
 
         return new LoginResult(response, newAccessToken, rawRefreshToken);
+    }
+
+    /**
+     * Switches the active role for an already-authenticated user.
+     * No password required — identity is verified via the existing JWT.
+     * Returns a new access token scoped to the selected role; refresh token is unchanged.
+     */
+    @Transactional
+    public LoginResult switchRole(String email, SwitchRoleRequest request) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user not found in DB"));
+
+        List<UserRole> activeRoles = userRoleAccessResolver.resolveActiveUserRoles(user);
+
+        UserRole selectedRole = activeRoles.stream()
+                .filter(er -> er.getId().equals(request.getUserRoleId()))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("User role not active for this user"));
+
+        String newAccessToken = jwtService.generateAccessToken(user, selectedRole);
+        AuthResponse authResponse = buildAuthResponse(user, selectedRole, activeRoles);
+
+        // Refresh token is not rotated — caller should keep their existing refresh_token cookie
+        return new LoginResult(authResponse, newAccessToken, null);
     }
 
     @Transactional
@@ -107,12 +138,12 @@ public class AuthService {
 
     // ── helpers ──────────────────────────────────────────────────────
 
-    private LoginResult issueTokens(User user, UserRole selectedRole) {
+    private LoginResult issueTokens(User user, UserRole selectedRole, List<UserRole> activeRoles) {
         refreshTokenRepository.revokeAllByUser(user);
 
         String accessToken = selectedRole != null
                 ? jwtService.generateAccessToken(user, selectedRole)
-                : jwtService.generateAccessToken(user);
+                : jwtService.generateAccessToken(user, activeRoles);
         String refreshToken = jwtService.generateRefreshToken(user);
 
         refreshTokenRepository.save(RefreshToken.builder()
@@ -121,11 +152,11 @@ public class AuthService {
                 .expiresAt(LocalDateTime.now().plusSeconds(604800))
                 .build());
 
-        return new LoginResult(buildAuthResponse(user, selectedRole), accessToken, refreshToken);
+        return new LoginResult(buildAuthResponse(user, selectedRole, activeRoles), accessToken, refreshToken);
     }
 
-    private AuthResponse buildAuthResponse(User user, UserRole selectedRole) {
-        List<UserRole> roles = selectedRole != null ? List.of(selectedRole) : user.getUserRoles();
+    private AuthResponse buildAuthResponse(User user, UserRole selectedRole, List<UserRole> activeRoles) {
+        List<UserRole> roles = selectedRole != null ? List.of(selectedRole) : activeRoles;
 
         List<String> authorities = roles.stream()
                 .flatMap(er -> er.getAccessRoles().stream())
@@ -153,11 +184,14 @@ public class AuthService {
                 .lastName(user.getLastName())
                 .email(user.getEmail())
                 .role(user.getRole().name())
-                .userRoles(user.getUserRoles().stream()
-                        .map(role -> UserRoleSummaryDTO.builder()
-                                .roleId(role.getId())
-                                .roleName(role.getName())
-                                .roleColor(role.getColor())
+                .userRoles(user.getRoleAssignments().stream()
+                        .map(a -> UserRoleSummaryDTO.builder()
+                                .roleId(a.getUserRole().getId())
+                                .roleName(a.getUserRole().getName())
+                                .roleColor(a.getUserRole().getColor())
+                                .temporary(!a.isPermanent())
+                                .startAt(a.getStartAt())
+                                .endAt(a.getEndAt())
                                 .build())
                         .toList())
                 .active(user.isActive())

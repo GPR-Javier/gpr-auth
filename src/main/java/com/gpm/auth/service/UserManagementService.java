@@ -2,14 +2,17 @@ package com.gpm.auth.service;
 
 import com.gpm.auth.dto.AssignUserRoleRequest;
 import com.gpm.auth.dto.CreateUserRequest;
-import com.gpm.common.exception.DuplicateResourceException;
+import com.gpm.auth.dto.TemporaryAccessRequest;
+import com.gpm.auth.dto.TemporaryUserRoleAssignmentDTO;
 import com.gpm.common.exception.ResourceNotFoundException;
 import com.gpm.auth.repository.UserRoleRepository;
 import com.gpm.auth.repository.UserRepository;
+import com.gpm.auth.repository.UserRoleAssignmentRepository;
 import com.gpm.common.dto.UserDTO;
 import com.gpm.common.dto.UserRoleSummaryDTO;
 import com.gpm.common.entity.UserRole;
 import com.gpm.common.entity.User;
+import com.gpm.common.entity.UserRoleAssignment;
 import com.gpm.common.enums.Role;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -19,7 +22,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -27,14 +35,11 @@ public class UserManagementService {
 
     private final UserRepository userRepository;
     private final UserRoleRepository userRoleRepository;
+    private final UserRoleAssignmentRepository roleAssignmentRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Transactional
     public UserDTO createUser(CreateUserRequest request) {
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new DuplicateResourceException("Email already in use: " + request.getEmail());
-        }
-
         List<UserRole> userRoles = request.getUserRoleIds().stream()
                 .map(id -> userRoleRepository.findById(id)
                         .orElseThrow(() -> new ResourceNotFoundException("Employee role not found: " + id)))
@@ -42,19 +47,42 @@ public class UserManagementService {
 
         int next = userRepository.findMaxEmployeeIdSequence().orElse(0) + 1;
         String employeeId = String.format("EMP-%03d", next);
+        String email = generateUniqueEmail(request.getFirstName(), request.getLastName());
 
         User user = User.builder()
                 .firstName(request.getFirstName())
                 .lastName(request.getLastName())
-                .email(request.getEmail())
+                .email(email)
                 .password(passwordEncoder.encode(request.getPassword()))
                 .employeeId(employeeId)
                 .role(Role.EMPLOYEE)
-                .userRoles(userRoles)
                 .active(true)
                 .build();
 
+        userRoles.forEach(user::addRoleAssignment);
         return toDTO(userRepository.save(user));
+    }
+
+    /**
+     * Generates a work email from the first letter of each word in the first name
+     * plus the full last name, e.g. "Gene Paul Mar" + "Javier" → "gpmjavier@workemail.com".
+     * Appends a numeric suffix when the base email is already taken.
+     */
+    private String generateUniqueEmail(String firstName, String lastName) {
+        String initials = java.util.Arrays.stream(firstName.trim().split("\\s+"))
+                .map(word -> String.valueOf(word.charAt(0)))
+                .collect(java.util.stream.Collectors.joining())
+                .toLowerCase();
+        String base = initials + lastName.trim().toLowerCase().replaceAll("\\s+", "");
+        String candidate = base + "@workemail.com";
+        if (!userRepository.existsByEmail(candidate)) {
+            return candidate;
+        }
+        int counter = 1;
+        while (userRepository.existsByEmail(base + counter + "@workemail.com")) {
+            counter++;
+        }
+        return base + counter + "@workemail.com";
     }
 
     @Transactional
@@ -76,6 +104,7 @@ public class UserManagementService {
         return userRepository.findAll(pageable).map(this::toDTO);
     }
 
+    /** Replaces all role assignments with the given list as permanent (no time window). */
     @Transactional
     public UserDTO assignUserRoles(Long userId, AssignUserRoleRequest request) {
         User user = userRepository.findById(userId)
@@ -86,12 +115,110 @@ public class UserManagementService {
                         .orElseThrow(() -> new ResourceNotFoundException("Employee role not found: " + id)))
                 .toList();
 
-        user.getUserRoles().clear();
-        user.getUserRoles().addAll(roles);
+        Set<Long> targetRoleIds = new HashSet<>(request.getUserRoleIds());
+
+        // Remove roles no longer selected.
+        user.getRoleAssignments().removeIf(assignment ->
+                assignment.getUserRole() == null
+                        || assignment.getUserRole().getId() == null
+                        || !targetRoleIds.contains(assignment.getUserRole().getId())
+        );
+
+        // Keep existing selected roles and make them permanent.
+        user.getRoleAssignments().forEach(assignment -> {
+            assignment.setStartAt(null);
+            assignment.setEndAt(null);
+        });
+
+        // Add only missing roles to avoid insert-before-delete unique conflicts.
+        roles.forEach(user::addRoleAssignment);
         return toDTO(userRepository.save(user));
     }
 
+    /**
+     * Sets or clears the temporary-access window on an existing role assignment.
+     * Sending all four date/time fields as null clears the restriction (role becomes permanent).
+     */
+    @Transactional
+    public TemporaryUserRoleAssignmentDTO setTemporaryAccess(Long userId, Long roleId, TemporaryAccessRequest request) {
+        if (request.getRoleId() != null && !request.getRoleId().equals(roleId)) {
+            throw new IllegalArgumentException("Path roleId must match payload roleId");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+        UserRole userRole = userRoleRepository.findById(roleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Employee role not found: " + roleId));
+
+        LocalDateTime startAt = resolveStartAt(request.getStartDate(), request.getStartTime(),
+                request.getEndDate(), request.getEndTime());
+        LocalDateTime endAt = resolveEndAt(request.getStartDate(), request.getStartTime(),
+                request.getEndDate(), request.getEndTime());
+
+        UserRoleAssignment assignment = roleAssignmentRepository
+                .findByUserIdAndUserRoleId(userId, roleId)
+                .orElseGet(() -> UserRoleAssignment.builder().user(user).userRole(userRole).build());
+
+        assignment.setStartAt(startAt);
+        assignment.setEndAt(endAt);
+        return toAssignmentDTO(roleAssignmentRepository.save(assignment));
+    }
+
+    @Transactional(readOnly = true)
+    public List<TemporaryUserRoleAssignmentDTO> getRoleAssignments(Long userId) {
+        if (!userRepository.existsById(userId)) {
+            throw new ResourceNotFoundException("User not found: " + userId);
+        }
+        return roleAssignmentRepository.findByUserId(userId).stream()
+                .map(this::toAssignmentDTO)
+                .toList();
+    }
+
     // ── helpers ──────────────────────────────────────────────────────
+
+    private LocalDateTime resolveStartAt(LocalDate startDate, LocalTime startTime, LocalDate endDate, LocalTime endTime) {
+        validateWindowInputs(startDate, startTime, endDate, endTime);
+        if (startDate == null) return null;
+        return LocalDateTime.of(startDate, startTime != null ? startTime : LocalTime.MIN);
+    }
+
+    private LocalDateTime resolveEndAt(LocalDate startDate, LocalTime startTime, LocalDate endDate, LocalTime endTime) {
+        validateWindowInputs(startDate, startTime, endDate, endTime);
+        if (endDate == null) return null;
+        LocalDateTime startAt = LocalDateTime.of(startDate, startTime != null ? startTime : LocalTime.MIN);
+        LocalDateTime resolvedEnd = LocalDateTime.of(endDate, endTime != null ? endTime : LocalTime.of(23, 59, 59));
+        if (resolvedEnd.isBefore(startAt)) {
+            throw new IllegalArgumentException("Temporary access end date/time must be after start date/time");
+        }
+        return resolvedEnd;
+    }
+
+    private void validateWindowInputs(LocalDate startDate, LocalTime startTime, LocalDate endDate, LocalTime endTime) {
+        boolean hasStartDate = startDate != null;
+        boolean hasEndDate = endDate != null;
+        if (hasStartDate != hasEndDate) {
+            throw new IllegalArgumentException("Both startDate and endDate are required when using a temporary access window");
+        }
+        if (!hasStartDate && (startTime != null || endTime != null)) {
+            throw new IllegalArgumentException("startTime/endTime cannot be provided without startDate/endDate");
+        }
+    }
+
+    private TemporaryUserRoleAssignmentDTO toAssignmentDTO(UserRoleAssignment assignment) {
+        LocalDateTime startAt = assignment.getStartAt();
+        LocalDateTime endAt = assignment.getEndAt();
+        return TemporaryUserRoleAssignmentDTO.builder()
+                .assignmentId(assignment.getId())
+                .userRoleId(assignment.getUserRole().getId())
+                .userRoleName(assignment.getUserRole().getName())
+                .startDate(startAt != null ? startAt.toLocalDate() : null)
+                .endDate(endAt != null ? endAt.toLocalDate() : null)
+                .startTime(startAt != null ? startAt.toLocalTime() : null)
+                .endTime(endAt != null ? endAt.toLocalTime() : null)
+                .active(!assignment.isPermanent())
+                .currentlyActive(assignment.isActiveAt(LocalDateTime.now()))
+                .build();
+    }
 
     private UserDTO toDTO(User user) {
         return UserDTO.builder()
@@ -101,11 +228,14 @@ public class UserManagementService {
                 .lastName(user.getLastName())
                 .email(user.getEmail())
                 .role(user.getRole().name())
-                .userRoles(user.getUserRoles().stream()
-                        .map(role -> UserRoleSummaryDTO.builder()
-                                .roleId(role.getId())
-                                .roleName(role.getName())
-                                .roleColor(role.getColor())
+                .userRoles(user.getRoleAssignments().stream()
+                        .map(a -> UserRoleSummaryDTO.builder()
+                                .roleId(a.getUserRole().getId())
+                                .roleName(a.getUserRole().getName())
+                                .roleColor(a.getUserRole().getColor())
+                                .temporary(!a.isPermanent())
+                                .startAt(a.getStartAt())
+                                .endAt(a.getEndAt())
                                 .build())
                         .toList())
                 .active(user.isActive())
