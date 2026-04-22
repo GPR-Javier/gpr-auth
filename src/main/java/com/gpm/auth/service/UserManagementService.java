@@ -33,6 +33,8 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class UserManagementService {
 
+    private static final String COMPANY_EMAIL_DOMAIN = "@company.com";
+
     private final UserRepository userRepository;
     private final UserRoleRepository userRoleRepository;
     private final UserRoleAssignmentRepository roleAssignmentRepository;
@@ -45,9 +47,9 @@ public class UserManagementService {
                         .orElseThrow(() -> new ResourceNotFoundException("Employee role not found: " + id)))
                 .toList();
 
-        int next = userRepository.findMaxEmployeeIdSequence().orElse(0) + 1;
-        String employeeId = String.format("EMP-%03d", next);
-        String email = generateUniqueEmail(request.getFirstName(), request.getLastName());
+        String handle = generateUniqueIdentityHandle(request.getFirstName(), request.getLastName());
+        String employeeId = handle;
+        String email = handle + COMPANY_EMAIL_DOMAIN;
 
         User user = User.builder()
                 .firstName(request.getFirstName())
@@ -64,25 +66,33 @@ public class UserManagementService {
     }
 
     /**
-     * Generates a work email from the first letter of each word in the first name
-     * plus the full last name, e.g. "Gene Paul Mar" + "Javier" → "gpmjavier@workemail.com".
-     * Appends a numeric suffix when the base email is already taken.
+     * Builds a unique user handle from first-name initials + last name.
+     * Example: "Gene Paul Mar" + "Javier" => "gpmjavier".
      */
-    private String generateUniqueEmail(String firstName, String lastName) {
+    private String generateUniqueIdentityHandle(String firstName, String lastName) {
+        String baseHandle = buildBaseIdentityHandle(firstName, lastName);
+        String candidateHandle = baseHandle;
+        int counter = 1;
+        while (identityHandleExists(candidateHandle)) {
+            candidateHandle = baseHandle + counter;
+            counter++;
+        }
+        return candidateHandle;
+    }
+
+    private String buildBaseIdentityHandle(String firstName, String lastName) {
         String initials = java.util.Arrays.stream(firstName.trim().split("\\s+"))
+                .filter(word -> !word.isBlank())
                 .map(word -> String.valueOf(word.charAt(0)))
                 .collect(java.util.stream.Collectors.joining())
                 .toLowerCase();
-        String base = initials + lastName.trim().toLowerCase().replaceAll("\\s+", "");
-        String candidate = base + "@workemail.com";
-        if (!userRepository.existsByEmail(candidate)) {
-            return candidate;
-        }
-        int counter = 1;
-        while (userRepository.existsByEmail(base + counter + "@workemail.com")) {
-            counter++;
-        }
-        return base + counter + "@workemail.com";
+        String normalizedLastName = lastName.trim().toLowerCase().replaceAll("\\s+", "");
+        return initials + normalizedLastName;
+    }
+
+    private boolean identityHandleExists(String handle) {
+        return userRepository.existsByEmployeeId(handle)
+                || userRepository.existsByEmail(handle + COMPANY_EMAIL_DOMAIN);
     }
 
     @Transactional
