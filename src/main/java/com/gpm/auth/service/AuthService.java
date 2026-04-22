@@ -48,8 +48,14 @@ public class AuthService {
         List<UserRole> activeRoles = userRoleAccessResolver.resolveActiveUserRoles(user);
 
         if (activeRoles.size() > 1) {
+            LocalDateTime now = LocalDateTime.now();
             List<RoleInfo> availableRoles = activeRoles.stream()
-                    .map(er -> RoleInfo.builder().id(er.getId()).name(er.getName()).description(er.getDescription()).build())
+                    .map(er -> RoleInfo.builder()
+                            .id(er.getId())
+                            .name(er.getName())
+                            .description(er.getDescription())
+                            .temporary(isTemporaryRole(user, er.getId(), now))
+                            .build())
                     .toList();
             AuthResponse response = AuthResponse.builder()
                     .requiresRoleSelection(true)
@@ -198,5 +204,18 @@ public class AuthService {
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())
                 .build();
+    }
+
+    private boolean isTemporaryRole(User user, Long roleId, LocalDateTime now) {
+        if (roleId == null) {
+            return false;
+        }
+        return user.getRoleAssignments().stream()
+                .filter(assignment -> assignment.getUserRole() != null
+                        && roleId.equals(assignment.getUserRole().getId())
+                        && assignment.isActiveAt(now))
+                .findFirst()
+                .map(assignment -> !assignment.isPermanent())
+                .orElse(false);
     }
 }
