@@ -5,7 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
-@SpringBootApplication(scanBasePackages = {"com.gpm.auth", "com.gpm.common", "com.gpm.wos_auth"})
+@SpringBootApplication(scanBasePackages = {"com.gpm.auth", "com.gpm.common"})
 @EntityScan(basePackages = {"com.gpm.common.entity", "com.gpm.auth.entity"})
 @EnableJpaRepositories(basePackages = "com.gpm.auth.repository")
 public class WosAuthApplication {

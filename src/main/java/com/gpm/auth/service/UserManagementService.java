@@ -125,7 +125,7 @@ public class UserManagementService {
                         .orElseThrow(() -> new ResourceNotFoundException("Employee role not found: " + id)))
                 .toList();
 
-        Set<Long> targetRoleIds = new HashSet<>(request.getUserRoleIds());
+        Set<Long> targetRoleIds = new HashSet<Long>(request.getUserRoleIds());
 
         // Remove roles no longer selected.
         user.getRoleAssignments().removeIf(assignment ->
