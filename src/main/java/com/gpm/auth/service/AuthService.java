@@ -3,7 +3,7 @@ package com.gpm.auth.service;
 import com.gpm.auth.dto.LoginResult;
 import com.gpm.auth.dto.RoleSelectionRequest;
 import com.gpm.auth.dto.SwitchRoleRequest;
-import com.gpm.auth.entity.RefreshToken;
+import com.gpm.common.entity.RefreshToken;
 import com.gpm.common.exception.InvalidTokenException;
 import com.gpm.common.exception.ResourceNotFoundException;
 import com.gpm.auth.repository.RefreshTokenRepository;
@@ -105,7 +105,7 @@ public class AuthService {
 
     /**
      * Switches the active role for an already-authenticated user.
-     * No password required — identity is verified via the existing JWT.
+     * No password required â€” identity is verified via the existing JWT.
      * Returns a new access token scoped to the selected role; refresh token is unchanged.
      */
     @Transactional
@@ -123,7 +123,7 @@ public class AuthService {
         String newAccessToken = jwtService.generateAccessToken(user, selectedRole);
         AuthResponse authResponse = buildAuthResponse(user, selectedRole, activeRoles);
 
-        // Refresh token is not rotated — caller should keep their existing refresh_token cookie
+        // Refresh token is not rotated â€” caller should keep their existing refresh_token cookie
         return new LoginResult(authResponse, newAccessToken, null);
     }
 
@@ -142,7 +142,7 @@ public class AuthService {
         return toDTO(user);
     }
 
-    // ── helpers ──────────────────────────────────────────────────────
+    // â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private LoginResult issueTokens(User user, UserRole selectedRole, List<UserRole> activeRoles) {
         refreshTokenRepository.revokeAllByUser(user);

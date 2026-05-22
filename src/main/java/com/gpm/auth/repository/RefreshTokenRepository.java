@@ -1,6 +1,6 @@
 package com.gpm.auth.repository;
 
-import com.gpm.auth.entity.RefreshToken;
+import com.gpm.common.entity.RefreshToken;
 import com.gpm.common.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;

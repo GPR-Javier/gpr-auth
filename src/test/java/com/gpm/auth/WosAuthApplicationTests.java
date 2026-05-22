@@ -1,6 +1,5 @@
-package com.gpm.wos_auth;
+package com.gpm.auth;
 
-import com.gpm.wos_auth.WosAuthApplication;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 

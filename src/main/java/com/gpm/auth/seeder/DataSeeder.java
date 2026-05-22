@@ -37,7 +37,6 @@ public class DataSeeder implements ApplicationRunner {
     private static final String ADMIN_ACCESS_ROLE_NAME = "Admin Access";
     private static final Set<String> ADMIN_EXCLUDED_PAGE_CODES = Set.of(
             "DTR",
-            "PAYROLL",
             "LEAVE",
             "OFFICIAL_BUSINESS",
             "CERTIFICATE_OF_EMPLOYMENT",
@@ -73,7 +72,26 @@ public class DataSeeder implements ApplicationRunner {
                     FunctionalityCode.ROLES_AND_PERMISSIONS_REMOVE_ACCESS_ROLE, FunctionalityCode.ROLES_AND_PERMISSIONS_TOGGLE_FUNCTIONALITY),
             entry("AUDIT_LOG", "Audit Log", FunctionalityCode.AUDIT_LOG_VIEW_AUDIT_LOGS, FunctionalityCode.AUDIT_LOG_SEARCH_AUDIT_LOGS, FunctionalityCode.AUDIT_LOG_EXPORT_AUDIT_LOGS),
             entry("CONFIGURATION", "Configuration", FunctionalityCode.CONFIGURATION_VIEW_CONFIG, FunctionalityCode.CONFIGURATION_EDIT_PAYROLL_SETTINGS,
-                    FunctionalityCode.CONFIGURATION_EDIT_ATTENDANCE_SETTINGS, FunctionalityCode.CONFIGURATION_EDIT_LEAVE_SETTINGS)
+                    FunctionalityCode.CONFIGURATION_EDIT_ATTENDANCE_SETTINGS, FunctionalityCode.CONFIGURATION_EDIT_LEAVE_SETTINGS),
+            entry("TEACHER_MANAGEMENT", "Teacher Management",
+                    FunctionalityCode.TEACHER_MANAGEMENT_VIEW_TEACHERS,
+                    FunctionalityCode.TEACHER_MANAGEMENT_ADD_TEACHER,
+                    FunctionalityCode.TEACHER_MANAGEMENT_EDIT_TEACHER,
+                    FunctionalityCode.TEACHER_MANAGEMENT_DELETE_TEACHER),
+            entry("SCHEDULE_MANAGEMENT", "Schedule Management",
+                    FunctionalityCode.SCHEDULE_MANAGEMENT_VIEW_SCHEDULES,
+                    FunctionalityCode.SCHEDULE_MANAGEMENT_UPLOAD_SCHEDULES,
+                    FunctionalityCode.SCHEDULE_MANAGEMENT_MANAGE_SCHEDULES),
+            entry("PAYROLL_MANAGEMENT", "Payroll Management",
+                    FunctionalityCode.PAYROLL_MANAGEMENT_MANAGE_PAYROLL,
+                    FunctionalityCode.PAYROLL_MANAGEMENT_CREATE_RUN,
+                    FunctionalityCode.PAYROLL_MANAGEMENT_RELEASE_PAYROLL,
+                    FunctionalityCode.PAYROLL_MANAGEMENT_VIEW_ALL_PAYSLIPS),
+            entry("REWARDS", "Rewards & Ratings",
+                    FunctionalityCode.REWARDS_VIEW_REWARDS,
+                    FunctionalityCode.REWARDS_MANAGE_REWARDS,
+                    FunctionalityCode.REWARDS_UPLOAD_RATINGS,
+                    FunctionalityCode.REWARDS_MANAGE_RULES)
     );
 
     @Override
