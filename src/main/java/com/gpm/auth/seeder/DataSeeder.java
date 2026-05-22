@@ -40,7 +40,8 @@ public class DataSeeder implements ApplicationRunner {
             "LEAVE",
             "OFFICIAL_BUSINESS",
             "CERTIFICATE_OF_EMPLOYMENT",
-            "OVERTIME"
+            "OVERTIME",
+            "SCHEDULE_CHANGE_REQUEST"
     );
 
     private final AccessRoleRepository accessRoleRepository;
@@ -92,7 +93,21 @@ public class DataSeeder implements ApplicationRunner {
                     FunctionalityCode.REWARDS_VIEW_REWARDS,
                     FunctionalityCode.REWARDS_MANAGE_REWARDS,
                     FunctionalityCode.REWARDS_UPLOAD_RATINGS,
-                    FunctionalityCode.REWARDS_MANAGE_RULES)
+                    FunctionalityCode.REWARDS_MANAGE_RULES),
+            entry("SCHEDULE_POLICY", "Schedule Policy",
+                    FunctionalityCode.SCHEDULE_POLICY_VIEW,
+                    FunctionalityCode.SCHEDULE_POLICY_EDIT_ORG,
+                    FunctionalityCode.SCHEDULE_POLICY_EDIT_ROLE,
+                    FunctionalityCode.SCHEDULE_POLICY_EDIT_USER,
+                    FunctionalityCode.SCHEDULE_POLICY_VIEW_HISTORY),
+            entry("SCHEDULE_CHANGE_REQUEST", "Schedule Change Requests",
+                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_FILE,
+                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_VIEW_OWN,
+                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_CANCEL_OWN),
+            entry("SCHEDULE_CHANGE_APPROVAL", "Schedule Change Approval",
+                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_VIEW_ALL,
+                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_APPROVE,
+                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_REJECT)
     );
 
     @Override
