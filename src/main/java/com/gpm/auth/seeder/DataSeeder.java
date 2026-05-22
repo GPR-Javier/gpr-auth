@@ -53,7 +53,8 @@ public class DataSeeder implements ApplicationRunner {
     /** pageCode → {pageName, [FunctionalityCodes...]} */
     private static final Map<String, Object[]> ACCESS_ROLE_DEFINITIONS = Map.ofEntries(
             entry("DTR", "DTR", FunctionalityCode.DTR_CLOCK_IN, FunctionalityCode.DTR_CLOCK_OUT, FunctionalityCode.DTR_BREAK_START, FunctionalityCode.DTR_BREAK_END,
-                    FunctionalityCode.DTR_VIEW_ATTENDANCE, FunctionalityCode.DTR_VIEW_ATTENDANCE_DETAIL, FunctionalityCode.DTR_FILE_APPEAL, FunctionalityCode.DTR_REQUEST_DTR_CORRECTION),
+                    FunctionalityCode.DTR_VIEW_ATTENDANCE, FunctionalityCode.DTR_VIEW_ATTENDANCE_DETAIL, FunctionalityCode.DTR_FILE_APPEAL, FunctionalityCode.DTR_REQUEST_DTR_CORRECTION,
+                    FunctionalityCode.DTR_REQUIRE_CAMERA_VALIDATION),
             entry("LEAVE", "Leave", FunctionalityCode.LEAVE_FILE_LEAVE, FunctionalityCode.LEAVE_VIEW_OWN_LEAVE, FunctionalityCode.LEAVE_VIEW_LEAVE_BALANCE, FunctionalityCode.LEAVE_CANCEL_LEAVE),
             entry("OFFICIAL_BUSINESS", "Official Business", FunctionalityCode.OFFICIAL_BUSINESS_FILE_OB, FunctionalityCode.OFFICIAL_BUSINESS_VIEW_OWN_OB),
             entry("CERTIFICATE_OF_EMPLOYMENT", "Certificate of Employment", FunctionalityCode.CERTIFICATE_OF_EMPLOYMENT_REQUEST_COE, FunctionalityCode.CERTIFICATE_OF_EMPLOYMENT_VIEW_OWN_COE),
@@ -179,14 +180,20 @@ public class DataSeeder implements ApplicationRunner {
     private Functionality seedFunctionality(FunctionalityCode code) {
         String name = humanizeAction(code);
 
+        boolean[] isNew = { false };
         Functionality functionality = functionalityRepository.findByCode(code)
-                .orElseGet(Functionality::new);
+                .orElseGet(() -> {
+                    isNew[0] = true;
+                    Functionality f = new Functionality();
+                    f.setEnabled(true); // new functionalities default to enabled
+                    return f;
+                });
         functionality.setCode(code);
         functionality.setName(name);
-        functionality.setEnabled(true);
+        // Preserve admin toggles on existing rows — only set enabled for brand-new ones above.
 
         Functionality saved = functionalityRepository.save(functionality);
-        log.info("Seeder: upserted Functionality '{}'", code.getCode());
+        log.info("Seeder: {} Functionality '{}'", isNew[0] ? "created" : "updated", code.getCode());
         return saved;
     }
 

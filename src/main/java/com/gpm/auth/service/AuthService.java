@@ -139,7 +139,24 @@ public class AuthService {
     public UserDTO me(String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("Authenticated user not found in DB"));
-        return toDTO(user);
+        UserDTO dto = toDTO(user);
+        dto.setAuthorities(computeEffectiveAuthorities(user));
+        return dto;
+    }
+
+    /**
+     * Effective authorities for the user *right now* — flattened from currently-active UserRoles
+     * to AccessRoles to enabled Functionalities. Matches the logic in CustomUserDetailsService so
+     * what /auth/me returns is consistent with what the JWT filter enforces on protected endpoints.
+     */
+    private List<String> computeEffectiveAuthorities(User user) {
+        return userRoleAccessResolver.resolveActiveUserRoles(user).stream()
+                .flatMap(ur -> ur.getAccessRoles().stream())
+                .flatMap(ar -> ar.getFunctionalities().stream())
+                .filter(Functionality::isEnabled)
+                .map(f -> f.getCode().getCode())
+                .distinct()
+                .toList();
     }
 
     // â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
