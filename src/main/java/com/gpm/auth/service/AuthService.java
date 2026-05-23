@@ -191,8 +191,13 @@ public class AuthService {
 
         List<String> userRoleNames = roles.stream().map(UserRole::getName).toList();
 
+        // Derive role label from whether any active role is an admin-type role.
+        // This replaces the static User.role column as the driver for the sidebar badge.
+        boolean isAdmin = roles.stream().anyMatch(UserRole::isAdmin);
+        String roleLabel = isAdmin ? "ADMIN" : "EMPLOYEE";
+
         return AuthResponse.builder()
-                .role(user.getRole().name())
+                .role(roleLabel)
                 .userRoleNames(userRoleNames)
                 .authorities(authorities)
                 .requiresRoleSelection(false)

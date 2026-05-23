@@ -15,6 +15,7 @@ import com.gpm.common.dto.FunctionalityDTO;
 import com.gpm.common.entity.AccessRole;
 import com.gpm.common.entity.UserRole;
 import com.gpm.common.entity.Functionality;
+import com.gpm.common.enums.RoleType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +39,7 @@ public class UserRoleService {
                 .name(request.getName())
                 .description(request.getDescription())
                 .color(request.getColor())
+                .roleType(request.getRoleType() != null ? request.getRoleType() : RoleType.EMPLOYEE)
                 .active(true)
                 .build();
         return toDTO(userRoleRepository.save(role));
@@ -57,6 +59,7 @@ public class UserRoleService {
                         .name(r.getName())
                         .description(r.getDescription())
                         .color(r.getColor())
+                        .roleType(r.getRoleType())
                         .active(true)
                         .build())
                 .toList();
@@ -78,6 +81,9 @@ public class UserRoleService {
         }
         if (request.getColor() != null) {
             role.setColor(request.getColor());
+        }
+        if (request.getRoleType() != null) {
+            role.setRoleType(request.getRoleType());
         }
         return toDTO(userRoleRepository.save(role));
     }
@@ -143,6 +149,7 @@ public class UserRoleService {
                 .name(role.getName())
                 .description(role.getDescription())
                 .color(role.getColor())
+                .roleType(role.getRoleType())
                 .active(role.isActive())
                 .accessRoles(role.getAccessRoles().stream().map(this::toAccessRoleDTO).toList())
                 .build();
@@ -153,6 +160,7 @@ public class UserRoleService {
                 .id(ar.getId())
                 .pageName(ar.getPageName())
                 .pageCode(ar.getPageCode())
+                .navGroup(ar.getNavGroup())
                 .functionalities(ar.getFunctionalities().stream().map(this::toFunctionalityDTO).toList())
                 .build();
     }
@@ -163,6 +171,7 @@ public class UserRoleService {
                 .name(f.getName())
                 .code(f.getCode().getCode())
                 .enabled(f.isEnabled())
+                .controlType(f.getControlType() != null ? f.getControlType().name().toLowerCase() : null)
                 .build();
     }
 }

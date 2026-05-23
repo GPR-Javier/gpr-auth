@@ -52,11 +52,13 @@ public class JwtService {
                 .toList();
 
         List<String> roleNames = roles.stream().map(UserRole::getName).toList();
+        // Derive the role claim from UserRole.isAdmin — User.role column is no longer authoritative.
+        boolean isAdmin = roles.stream().anyMatch(UserRole::isAdmin);
 
         return Jwts.builder()
                 .subject(user.getId().toString())
                 .claim("email", user.getEmail())
-                .claim("role", user.getRole().name())
+                .claim("role", isAdmin ? "ADMIN" : "EMPLOYEE")
                 .claim("userRoleNames", roleNames)
                 .claim("authorities", authorities)
                 .issuedAt(new Date())

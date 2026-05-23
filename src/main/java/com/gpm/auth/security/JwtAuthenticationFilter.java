@@ -46,35 +46,39 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         if (SecurityContextHolder.getContext().getAuthentication() == null) {
-            Claims claims = jwtService.extractAllClaims(token);
-            String email = claims.get("email", String.class);
-            UserDetails userDetails = userDetailsService.loadUserByUsername(email);
+            try {
+                Claims claims = jwtService.extractAllClaims(token);
+                String email = claims.get("email", String.class);
+                UserDetails userDetails = userDetailsService.loadUserByUsername(email);
 
-            List<GrantedAuthority> effectiveAuthorities = new ArrayList<>(userDetails.getAuthorities());
-            // Merge token authorities as fallback so a valid, recently-issued token keeps working
-            // even if DB role-assignment rows were migrated/updated after login.
-            List<String> tokenAuthorities = jwtService.extractAuthorities(token);
-            if (tokenAuthorities != null) {
-                tokenAuthorities.stream()
-                        .map(SimpleGrantedAuthority::new)
-                        .forEach(authority -> {
-                            if (!effectiveAuthorities.contains(authority)) {
-                                effectiveAuthorities.add(authority);
-                            }
-                        });
-            }
-            String tokenRole = claims.get("role", String.class);
-            if ("ADMIN".equalsIgnoreCase(tokenRole)) {
-                SimpleGrantedAuthority adminAuthority = new SimpleGrantedAuthority("ROLE_ADMIN");
-                if (!effectiveAuthorities.contains(adminAuthority)) {
-                    effectiveAuthorities.add(adminAuthority);
+                List<GrantedAuthority> effectiveAuthorities = new ArrayList<>(userDetails.getAuthorities());
+                // Merge token authorities as fallback so a valid, recently-issued token keeps working
+                // even if DB role-assignment rows were migrated/updated after login.
+                List<String> tokenAuthorities = jwtService.extractAuthorities(token);
+                if (tokenAuthorities != null) {
+                    tokenAuthorities.stream()
+                            .map(SimpleGrantedAuthority::new)
+                            .forEach(authority -> {
+                                if (!effectiveAuthorities.contains(authority)) {
+                                    effectiveAuthorities.add(authority);
+                                }
+                            });
                 }
-            }
+                String tokenRole = claims.get("role", String.class);
+                if ("ADMIN".equalsIgnoreCase(tokenRole)) {
+                    SimpleGrantedAuthority adminAuthority = new SimpleGrantedAuthority("ROLE_ADMIN");
+                    if (!effectiveAuthorities.contains(adminAuthority)) {
+                        effectiveAuthorities.add(adminAuthority);
+                    }
+                }
 
-            UsernamePasswordAuthenticationToken authToken =
-                    new UsernamePasswordAuthenticationToken(userDetails, null, effectiveAuthorities);
-            authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-            SecurityContextHolder.getContext().setAuthentication(authToken);
+                UsernamePasswordAuthenticationToken authToken =
+                        new UsernamePasswordAuthenticationToken(userDetails, null, effectiveAuthorities);
+                authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(authToken);
+            } catch (Exception e) {
+                log.warn("JWT authentication failed for request [{}]: {}", request.getRequestURI(), e.getMessage());
+            }
         }
 
         filterChain.doFilter(request, response);

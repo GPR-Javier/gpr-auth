@@ -8,8 +8,10 @@ import com.gpm.common.entity.AccessRole;
 import com.gpm.common.entity.UserRole;
 import com.gpm.common.entity.Functionality;
 import com.gpm.common.entity.User;
+import com.gpm.common.enums.ControlType;
 import com.gpm.common.enums.FunctionalityCode;
 import com.gpm.common.enums.Role;
+import com.gpm.common.enums.RoleType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -21,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.AbstractMap;
@@ -33,15 +34,19 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class DataSeeder implements ApplicationRunner {
 
-    private static final String SUPER_HR_ROLE_NAME = "Super HR";
-    private static final String ADMIN_ACCESS_ROLE_NAME = "Admin Access";
-    private static final Set<String> ADMIN_EXCLUDED_PAGE_CODES = Set.of(
+    private static final String SUPER_ADMIN_ROLE_NAME = "Super Admin";
+    private static final String ADMIN_USER_EMAIL = "admin@company.com";
+
+    /** Page codes whose functionalities are employee self-service (controlType = EMPLOYEE). All others are ADMIN. */
+    private static final Set<String> EMPLOYEE_PAGE_CODES = Set.of(
             "DTR",
             "LEAVE",
             "OFFICIAL_BUSINESS",
             "CERTIFICATE_OF_EMPLOYMENT",
             "OVERTIME",
-            "SCHEDULE_CHANGE_REQUEST"
+            "PAYROLL",
+            "SCHEDULE_CHANGE_REQUEST",
+            "CHANGE_TIME_REQUEST"
     );
 
     private final AccessRoleRepository accessRoleRepository;
@@ -51,74 +56,127 @@ public class DataSeeder implements ApplicationRunner {
     private final PasswordEncoder passwordEncoder;
     private final JdbcTemplate jdbcTemplate;
 
-    /** pageCode → {pageName, [FunctionalityCodes...]} */
+    /** pageCode → {pageName, navGroup, FunctionalityCodes[]} */
     private static final Map<String, Object[]> ACCESS_ROLE_DEFINITIONS = Map.ofEntries(
-            entry("DTR", "DTR", FunctionalityCode.DTR_CLOCK_IN, FunctionalityCode.DTR_CLOCK_OUT, FunctionalityCode.DTR_BREAK_START, FunctionalityCode.DTR_BREAK_END,
-                    FunctionalityCode.DTR_VIEW_ATTENDANCE, FunctionalityCode.DTR_VIEW_ATTENDANCE_DETAIL, FunctionalityCode.DTR_FILE_APPEAL, FunctionalityCode.DTR_REQUEST_DTR_CORRECTION,
-                    FunctionalityCode.DTR_REQUIRE_CAMERA_VALIDATION),
-            entry("LEAVE", "Leave", FunctionalityCode.LEAVE_FILE_LEAVE, FunctionalityCode.LEAVE_VIEW_OWN_LEAVE, FunctionalityCode.LEAVE_VIEW_LEAVE_BALANCE, FunctionalityCode.LEAVE_CANCEL_LEAVE),
-            entry("OFFICIAL_BUSINESS", "Official Business", FunctionalityCode.OFFICIAL_BUSINESS_FILE_OB, FunctionalityCode.OFFICIAL_BUSINESS_VIEW_OWN_OB),
-            entry("CERTIFICATE_OF_EMPLOYMENT", "Certificate of Employment", FunctionalityCode.CERTIFICATE_OF_EMPLOYMENT_REQUEST_COE, FunctionalityCode.CERTIFICATE_OF_EMPLOYMENT_VIEW_OWN_COE),
-            entry("OVERTIME", "Overtime", FunctionalityCode.OVERTIME_FILE_OVERTIME, FunctionalityCode.OVERTIME_VIEW_OWN_OVERTIME),
-            entry("PAYROLL", "Payroll", FunctionalityCode.PAYROLL_VIEW_PAYSLIP, FunctionalityCode.PAYROLL_DOWNLOAD_PAYSLIP, FunctionalityCode.PAYROLL_EXPORT_PAYROLL_HISTORY, FunctionalityCode.PAYROLL_VIEW_YTD_SUMMARY),
-            entry("LEAVE_MANAGEMENT", "Leave Management", FunctionalityCode.LEAVE_MANAGEMENT_VIEW_ALL_LEAVE_REQUESTS, FunctionalityCode.LEAVE_MANAGEMENT_APPROVE_LEAVE, FunctionalityCode.LEAVE_MANAGEMENT_REJECT_LEAVE),
-            entry("EMPLOYEE_MANAGEMENT", "Employee Management", FunctionalityCode.EMPLOYEE_MANAGEMENT_VIEW_EMPLOYEES, FunctionalityCode.EMPLOYEE_MANAGEMENT_ADD_EMPLOYEE,
-                    FunctionalityCode.EMPLOYEE_MANAGEMENT_VIEW_EMPLOYEE_PROFILE, FunctionalityCode.EMPLOYEE_MANAGEMENT_SEARCH_EMPLOYEES),
-            entry("RECRUITMENT", "Recruitment", FunctionalityCode.RECRUITMENT_VIEW_JOB_POSTINGS, FunctionalityCode.RECRUITMENT_VIEW_APPLICANTS, FunctionalityCode.RECRUITMENT_VIEW_JOB_DETAIL),
-            entry("ATTENDANCE_MANAGEMENT", "Attendance Management", FunctionalityCode.ATTENDANCE_MANAGEMENT_VIEW_ALL_ATTENDANCE,
-                    FunctionalityCode.ATTENDANCE_MANAGEMENT_APPROVE_DTR_CORRECTION, FunctionalityCode.ATTENDANCE_MANAGEMENT_APPROVE_OT_REQUEST),
-            entry("USER_MANAGEMENT", "User Management", FunctionalityCode.USER_MANAGEMENT_VIEW_USERS, FunctionalityCode.USER_MANAGEMENT_CREATE_USER,
-                    FunctionalityCode.USER_MANAGEMENT_ASSIGN_ROLES, FunctionalityCode.USER_MANAGEMENT_DELETE_USER, FunctionalityCode.USER_MANAGEMENT_FILTER_USERS_BY_ROLE),
-            entry("ROLES_AND_PERMISSIONS", "Roles and Permissions", FunctionalityCode.ROLES_AND_PERMISSIONS_VIEW_ROLES, FunctionalityCode.ROLES_AND_PERMISSIONS_CREATE_ROLE,
-                    FunctionalityCode.ROLES_AND_PERMISSIONS_EDIT_ROLE, FunctionalityCode.ROLES_AND_PERMISSIONS_DELETE_ROLE, FunctionalityCode.ROLES_AND_PERMISSIONS_ASSIGN_ACCESS_ROLE,
-                    FunctionalityCode.ROLES_AND_PERMISSIONS_REMOVE_ACCESS_ROLE, FunctionalityCode.ROLES_AND_PERMISSIONS_TOGGLE_FUNCTIONALITY),
-            entry("AUDIT_LOG", "Audit Log", FunctionalityCode.AUDIT_LOG_VIEW_AUDIT_LOGS, FunctionalityCode.AUDIT_LOG_SEARCH_AUDIT_LOGS, FunctionalityCode.AUDIT_LOG_EXPORT_AUDIT_LOGS),
-            entry("CONFIGURATION", "Configuration", FunctionalityCode.CONFIGURATION_VIEW_CONFIG, FunctionalityCode.CONFIGURATION_EDIT_PAYROLL_SETTINGS,
-                    FunctionalityCode.CONFIGURATION_EDIT_ATTENDANCE_SETTINGS, FunctionalityCode.CONFIGURATION_EDIT_LEAVE_SETTINGS),
-            entry("TEACHER_MANAGEMENT", "Teacher Management",
-                    FunctionalityCode.TEACHER_MANAGEMENT_VIEW_TEACHERS,
-                    FunctionalityCode.TEACHER_MANAGEMENT_ADD_TEACHER,
-                    FunctionalityCode.TEACHER_MANAGEMENT_EDIT_TEACHER,
-                    FunctionalityCode.TEACHER_MANAGEMENT_DELETE_TEACHER),
-            entry("SCHEDULE_MANAGEMENT", "Schedule Management",
+            // ── Employee self-service ──────────────────────────────────────────────────
+            entry("DTR", "My Attendance", "Self Service",
+                    FunctionalityCode.DTR_CLOCK_IN, FunctionalityCode.DTR_CLOCK_OUT, FunctionalityCode.DTR_BREAK_START, FunctionalityCode.DTR_BREAK_END,
+                    FunctionalityCode.DTR_VIEW_ATTENDANCE, FunctionalityCode.DTR_VIEW_ATTENDANCE_DETAIL, FunctionalityCode.DTR_FILE_APPEAL,
+                    FunctionalityCode.DTR_REQUEST_DTR_CORRECTION, FunctionalityCode.DTR_REQUIRE_CAMERA_VALIDATION),
+            entry("PAYROLL", "My Payslip", "Self Service",
+                    FunctionalityCode.PAYROLL_VIEW_PAYSLIP, FunctionalityCode.PAYROLL_DOWNLOAD_PAYSLIP, FunctionalityCode.PAYROLL_EXPORT_PAYROLL_HISTORY, FunctionalityCode.PAYROLL_VIEW_YTD_SUMMARY),
+            // ── Employee requests (My Requests) ───────────────────────────────────────
+            entry("LEAVE", "My Leave", "My Requests",
+                    FunctionalityCode.LEAVE_FILE_LEAVE, FunctionalityCode.LEAVE_VIEW_OWN_LEAVE, FunctionalityCode.LEAVE_VIEW_LEAVE_BALANCE, FunctionalityCode.LEAVE_CANCEL_LEAVE),
+            entry("OVERTIME", "Overtime", "My Requests",
+                    FunctionalityCode.OVERTIME_FILE_OVERTIME, FunctionalityCode.OVERTIME_VIEW_OWN_OVERTIME),
+            entry("CERTIFICATE_OF_EMPLOYMENT", "COE", "My Requests",
+                    FunctionalityCode.CERTIFICATE_OF_EMPLOYMENT_REQUEST_COE, FunctionalityCode.CERTIFICATE_OF_EMPLOYMENT_VIEW_OWN_COE),
+            entry("OFFICIAL_BUSINESS", "OR", "My Requests",
+                    FunctionalityCode.OFFICIAL_BUSINESS_FILE_OB, FunctionalityCode.OFFICIAL_BUSINESS_VIEW_OWN_OB),
+            entry("CHANGE_TIME_REQUEST", "Change Time In/Time Out", "My Requests",
+                    FunctionalityCode.CHANGE_TIME_REQUEST_FILE, FunctionalityCode.CHANGE_TIME_REQUEST_VIEW_OWN, FunctionalityCode.CHANGE_TIME_REQUEST_CANCEL),
+            entry("SCHEDULE_CHANGE_REQUEST", "Schedule", "My Requests",
+                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_FILE, FunctionalityCode.SCHEDULE_CHANGE_REQUEST_VIEW_OWN, FunctionalityCode.SCHEDULE_CHANGE_REQUEST_CANCEL_OWN),
+            // ── Team (admin) ───────────────────────────────────────────────────────────
+            entry("ATTENDANCE_MANAGEMENT", "Attendance", "Team",
+                    FunctionalityCode.ATTENDANCE_MANAGEMENT_VIEW_ALL_ATTENDANCE,
+                    FunctionalityCode.ATTENDANCE_MANAGEMENT_APPROVE_DTR_CORRECTION,
+                    FunctionalityCode.ATTENDANCE_MANAGEMENT_APPROVE_OT_REQUEST),
+            entry("SCHEDULE_MANAGEMENT", "Schedule", "Team",
                     FunctionalityCode.SCHEDULE_MANAGEMENT_VIEW_SCHEDULES,
                     FunctionalityCode.SCHEDULE_MANAGEMENT_UPLOAD_SCHEDULES,
                     FunctionalityCode.SCHEDULE_MANAGEMENT_MANAGE_SCHEDULES),
-            entry("PAYROLL_MANAGEMENT", "Payroll Management",
+            entry("LEAVE_MANAGEMENT", "Leave Management", "Team",
+                    FunctionalityCode.LEAVE_MANAGEMENT_VIEW_ALL_LEAVE_REQUESTS, FunctionalityCode.LEAVE_MANAGEMENT_APPROVE_LEAVE, FunctionalityCode.LEAVE_MANAGEMENT_REJECT_LEAVE),
+            entry("EMPLOYEE_MANAGEMENT", "Employees", "Team",
+                    FunctionalityCode.EMPLOYEE_MANAGEMENT_VIEW_EMPLOYEES, FunctionalityCode.EMPLOYEE_MANAGEMENT_ADD_EMPLOYEE,
+                    FunctionalityCode.EMPLOYEE_MANAGEMENT_VIEW_EMPLOYEE_PROFILE, FunctionalityCode.EMPLOYEE_MANAGEMENT_SEARCH_EMPLOYEES),
+            entry("SCHEDULE_CHANGE_APPROVAL", "Schedule Change Approval", "Team",
+                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_VIEW_ALL,
+                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_APPROVE,
+                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_REJECT),
+            entry("COE_MANAGEMENT", "COE", "Team",
+                    FunctionalityCode.COE_MANAGEMENT_VIEW_ALL,
+                    FunctionalityCode.COE_MANAGEMENT_APPROVE,
+                    FunctionalityCode.COE_MANAGEMENT_REJECT),
+            entry("OR_MANAGEMENT", "OR", "Team",
+                    FunctionalityCode.OR_MANAGEMENT_VIEW_ALL,
+                    FunctionalityCode.OR_MANAGEMENT_APPROVE,
+                    FunctionalityCode.OR_MANAGEMENT_REJECT),
+            entry("CHANGE_TIME_MANAGEMENT", "Change Time In/Time Out", "Team",
+                    FunctionalityCode.CHANGE_TIME_MANAGEMENT_VIEW_ALL,
+                    FunctionalityCode.CHANGE_TIME_MANAGEMENT_APPROVE,
+                    FunctionalityCode.CHANGE_TIME_MANAGEMENT_REJECT),
+            entry("OVERTIME_MANAGEMENT", "Overtime", "Team",
+                    FunctionalityCode.OVERTIME_MANAGEMENT_VIEW_ALL,
+                    FunctionalityCode.OVERTIME_MANAGEMENT_APPROVE,
+                    FunctionalityCode.OVERTIME_MANAGEMENT_REJECT),
+            // ── Finance (admin) ────────────────────────────────────────────────────────
+            entry("PAYROLL_MANAGEMENT", "Payroll", "Finance",
                     FunctionalityCode.PAYROLL_MANAGEMENT_MANAGE_PAYROLL,
                     FunctionalityCode.PAYROLL_MANAGEMENT_CREATE_RUN,
                     FunctionalityCode.PAYROLL_MANAGEMENT_RELEASE_PAYROLL,
                     FunctionalityCode.PAYROLL_MANAGEMENT_VIEW_ALL_PAYSLIPS),
-            entry("REWARDS", "Rewards & Ratings",
+            entry("REWARDS", "Rewards & Ratings", "Finance",
                     FunctionalityCode.REWARDS_VIEW_REWARDS,
                     FunctionalityCode.REWARDS_MANAGE_REWARDS,
                     FunctionalityCode.REWARDS_UPLOAD_RATINGS,
                     FunctionalityCode.REWARDS_MANAGE_RULES),
-            entry("SCHEDULE_POLICY", "Schedule Policy",
+            // ── System (admin) ─────────────────────────────────────────────────────────
+            entry("USER_MANAGEMENT", "User Management", "System",
+                    FunctionalityCode.USER_MANAGEMENT_VIEW_USERS, FunctionalityCode.USER_MANAGEMENT_CREATE_USER,
+                    FunctionalityCode.USER_MANAGEMENT_ASSIGN_ROLES, FunctionalityCode.USER_MANAGEMENT_DELETE_USER, FunctionalityCode.USER_MANAGEMENT_FILTER_USERS_BY_ROLE),
+            entry("ROLES_AND_PERMISSIONS", "Roles & Permissions", "System",
+                    FunctionalityCode.ROLES_AND_PERMISSIONS_VIEW_ROLES, FunctionalityCode.ROLES_AND_PERMISSIONS_CREATE_ROLE,
+                    FunctionalityCode.ROLES_AND_PERMISSIONS_EDIT_ROLE, FunctionalityCode.ROLES_AND_PERMISSIONS_DELETE_ROLE, FunctionalityCode.ROLES_AND_PERMISSIONS_ASSIGN_ACCESS_ROLE,
+                    FunctionalityCode.ROLES_AND_PERMISSIONS_REMOVE_ACCESS_ROLE, FunctionalityCode.ROLES_AND_PERMISSIONS_TOGGLE_FUNCTIONALITY),
+            entry("AUDIT_LOG", "Audit Log", "System",
+                    FunctionalityCode.AUDIT_LOG_VIEW_AUDIT_LOGS, FunctionalityCode.AUDIT_LOG_SEARCH_AUDIT_LOGS, FunctionalityCode.AUDIT_LOG_EXPORT_AUDIT_LOGS),
+            entry("CONFIGURATION", "Configuration", "System",
+                    FunctionalityCode.CONFIGURATION_VIEW_CONFIG, FunctionalityCode.CONFIGURATION_EDIT_PAYROLL_SETTINGS,
+                    FunctionalityCode.CONFIGURATION_EDIT_ATTENDANCE_SETTINGS, FunctionalityCode.CONFIGURATION_EDIT_LEAVE_SETTINGS),
+            entry("SCHEDULE_POLICY", "Schedule Policy", "System",
                     FunctionalityCode.SCHEDULE_POLICY_VIEW,
                     FunctionalityCode.SCHEDULE_POLICY_EDIT_ORG,
                     FunctionalityCode.SCHEDULE_POLICY_EDIT_ROLE,
                     FunctionalityCode.SCHEDULE_POLICY_EDIT_USER,
                     FunctionalityCode.SCHEDULE_POLICY_VIEW_HISTORY),
-            entry("SCHEDULE_CHANGE_REQUEST", "Schedule Change Requests",
-                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_FILE,
-                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_VIEW_OWN,
-                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_CANCEL_OWN),
-            entry("SCHEDULE_CHANGE_APPROVAL", "Schedule Change Approval",
-                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_VIEW_ALL,
-                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_APPROVE,
-                    FunctionalityCode.SCHEDULE_CHANGE_REQUEST_REJECT)
+            entry("TEACHER_MANAGEMENT", "Teacher Management", "System",
+                    FunctionalityCode.TEACHER_MANAGEMENT_VIEW_TEACHERS,
+                    FunctionalityCode.TEACHER_MANAGEMENT_ADD_TEACHER,
+                    FunctionalityCode.TEACHER_MANAGEMENT_EDIT_TEACHER,
+                    FunctionalityCode.TEACHER_MANAGEMENT_DELETE_TEACHER),
+            // ── Recruitment (admin) ────────────────────────────────────────────────────
+            entry("RECRUITMENT", "Recruitment", "Recruitment",
+                    FunctionalityCode.RECRUITMENT_VIEW_JOB_POSTINGS, FunctionalityCode.RECRUITMENT_VIEW_APPLICANTS, FunctionalityCode.RECRUITMENT_VIEW_JOB_DETAIL)
     );
 
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
         migrateLegacyRoleAssignments();
+        migrateRoleTypeColumn();
         syncFunctionalityConstraint();
         List<AccessRole> allAccessRoles = seedAccessRoles();
-        seedSuperHrRole(allAccessRoles);
-        UserRole adminAccessRole = seedAdminAccessRole(allAccessRoles);
-        seedAdminUser(adminAccessRole);
+        UserRole superAdminRole = seedSuperAdminRole(allAccessRoles);
+        seedAdminUser(superAdminRole);
+    }
+
+    /**
+     * One-time migration: backfills the new role_type column from the legacy is_admin boolean.
+     * Runs on every startup; skips rows that already have role_type set.
+     */
+    private void migrateRoleTypeColumn() {
+        int adminMigrated = jdbcTemplate.update(
+                "UPDATE user_roles SET role_type = 'ADMIN' WHERE is_admin = true AND role_type IS NULL"
+        );
+        int employeeMigrated = jdbcTemplate.update(
+                "UPDATE user_roles SET role_type = 'EMPLOYEE' WHERE role_type IS NULL"
+        );
+        if (adminMigrated > 0 || employeeMigrated > 0) {
+            log.info("Seeder: migrated role_type column — {} ADMIN, {} EMPLOYEE rows", adminMigrated, employeeMigrated);
+        }
     }
 
     /**
@@ -169,11 +227,15 @@ public class DataSeeder implements ApplicationRunner {
 
         ACCESS_ROLE_DEFINITIONS.forEach((pageCode, def) -> {
             String pageName = (String) def[0];
-            FunctionalityCode[] codes = (FunctionalityCode[]) def[1];
+            String navGroup = (String) def[1];
+            FunctionalityCode[] codes = (FunctionalityCode[]) def[2];
+            ControlType controlType = EMPLOYEE_PAGE_CODES.contains(pageCode)
+                    ? ControlType.EMPLOYEE
+                    : ControlType.ADMIN;
 
             List<Functionality> functionalities = new ArrayList<>();
             for (FunctionalityCode code : codes) {
-                Functionality f = seedFunctionality(code);
+                Functionality f = seedFunctionality(code, controlType);
                 functionalities.add(f);
             }
 
@@ -181,18 +243,19 @@ public class DataSeeder implements ApplicationRunner {
                     .orElseGet(AccessRole::new);
             accessRole.setPageName(pageName);
             accessRole.setPageCode(pageCode);
+            accessRole.setNavGroup(navGroup);
             accessRole.getFunctionalities().clear();
             accessRole.getFunctionalities().addAll(functionalities);
 
             AccessRole saved = accessRoleRepository.save(accessRole);
             result.add(saved);
-            log.info("Seeder: upserted AccessRole '{}' with {} functionalities", pageCode, functionalities.size());
+            log.info("Seeder: upserted AccessRole '{}' ({}) with {} functionalities", pageCode, controlType, functionalities.size());
         });
 
         return result;
     }
 
-    private Functionality seedFunctionality(FunctionalityCode code) {
+    private Functionality seedFunctionality(FunctionalityCode code, ControlType controlType) {
         String name = humanizeAction(code);
 
         boolean[] isNew = { false };
@@ -205,10 +268,11 @@ public class DataSeeder implements ApplicationRunner {
                 });
         functionality.setCode(code);
         functionality.setName(name);
+        functionality.setControlType(controlType);
         // Preserve admin toggles on existing rows — only set enabled for brand-new ones above.
 
         Functionality saved = functionalityRepository.save(functionality);
-        log.info("Seeder: {} Functionality '{}'", isNew[0] ? "created" : "updated", code.getCode());
+        log.info("Seeder: {} Functionality '{}' ({})", isNew[0] ? "created" : "updated", code.getCode(), controlType);
         return saved;
     }
 
@@ -222,93 +286,65 @@ public class DataSeeder implements ApplicationRunner {
                 .orElse(action);
     }
 
-    private static Map.Entry<String, Object[]> entry(String pageCode, String pageName, FunctionalityCode... functionalities) {
-        return new AbstractMap.SimpleEntry<>(pageCode, new Object[]{pageName, functionalities});
+    private static Map.Entry<String, Object[]> entry(String pageCode, String pageName, String navGroup, FunctionalityCode... functionalities) {
+        return new AbstractMap.SimpleEntry<>(pageCode, new Object[]{pageName, navGroup, functionalities});
     }
 
-    // ── Step 2: Seed "Super HR" UserRole ─────────────────────────
+    // ── Step 2: Seed "Super Admin" UserRole ──────────────────────────
 
-    private void seedSuperHrRole(List<AccessRole> allAccessRoles) {
-        UserRole superHr = userRoleRepository.findByName(SUPER_HR_ROLE_NAME).orElse(null);
-        if (superHr != null) {
-            allAccessRoles.forEach(superHr::addAccessRole);
-            userRoleRepository.save(superHr);
-            log.info("Seeder: updated UserRole '{}' with all access roles", SUPER_HR_ROLE_NAME);
-            return;
-        }
-
-        superHr = UserRole.builder()
-                .name(SUPER_HR_ROLE_NAME)
-                .description("Full access to all modules")
-                .accessRoles(new ArrayList<>(allAccessRoles))
-                .active(true)
-                .build();
-
-        userRoleRepository.save(superHr);
-        log.info("Seeder: created UserRole '{}'", SUPER_HR_ROLE_NAME);
-    }
-
-    private UserRole seedAdminAccessRole(List<AccessRole> allAccessRoles) {
-        List<AccessRole> allowedAccessRoles = allAccessRoles.stream()
-                .filter(role -> !ADMIN_EXCLUDED_PAGE_CODES.contains(role.getPageCode()))
+    private UserRole seedSuperAdminRole(List<AccessRole> allAccessRoles) {
+        // Super Admin gets only admin-control access roles (excludes employee self-service pages)
+        List<AccessRole> adminAccessRoles = allAccessRoles.stream()
+                .filter(ar -> !EMPLOYEE_PAGE_CODES.contains(ar.getPageCode()))
                 .toList();
 
-        UserRole adminAccess = userRoleRepository.findByName(ADMIN_ACCESS_ROLE_NAME).orElse(null);
-        if (adminAccess == null) {
-            adminAccess = UserRole.builder()
-                    .name(ADMIN_ACCESS_ROLE_NAME)
-                    .description("Admin access excluding employee self-service modules")
+        UserRole superAdmin = userRoleRepository.findByName(SUPER_ADMIN_ROLE_NAME).orElse(null);
+        if (superAdmin == null) {
+            superAdmin = UserRole.builder()
+                    .name(SUPER_ADMIN_ROLE_NAME)
+                    .description("Full access to all admin control modules")
+                    .roleType(RoleType.ADMIN)
                     .active(true)
                     .build();
         }
+        superAdmin.setRoleType(RoleType.ADMIN);
+        superAdmin.setActive(true);
+        superAdmin.getAccessRoles().clear();
+        adminAccessRoles.forEach(superAdmin::addAccessRole);
 
-        adminAccess.setActive(true);
-        adminAccess.getAccessRoles().clear();
-        allowedAccessRoles.forEach(adminAccess::addAccessRole);
-
-        UserRole saved = userRoleRepository.save(adminAccess);
-        log.info("Seeder: upserted UserRole '{}' with {} access roles", ADMIN_ACCESS_ROLE_NAME, allowedAccessRoles.size());
+        UserRole saved = userRoleRepository.save(superAdmin);
+        log.info("Seeder: upserted UserRole '{}' with {} access roles", SUPER_ADMIN_ROLE_NAME, adminAccessRoles.size());
         return saved;
     }
 
-    // ── Step 3: Seed default ADMIN user ──────────────────────────────
+    // ── Step 3: Seed default admin user ──────────────────────────────
 
-    private void seedAdminUser(UserRole adminAccessRole) {
-        List<User> admins = userRepository.findAll().stream()
-                .filter(user -> user.getRole() == Role.ADMIN)
-                .toList();
+    private void seedAdminUser(UserRole superAdminRole) {
+        User admin = userRepository.findByEmail(ADMIN_USER_EMAIL).orElse(null);
 
-        if (admins.isEmpty()) {
-            User admin = User.builder()
+        if (admin == null) {
+            admin = User.builder()
                     .firstName("Admin")
                     .lastName("System")
-                    .email("admin@company.com")
+                    .email(ADMIN_USER_EMAIL)
                     .password(passwordEncoder.encode("Admin@1234"))
                     .employeeId("ADMIN-001")
                     .role(Role.ADMIN)
                     .active(true)
                     .build();
-            admin.addRoleAssignment(adminAccessRole);
-
+            admin.addRoleAssignment(superAdminRole);
             userRepository.save(admin);
-            log.info("Seeder: created ADMIN user 'admin@company.com' with '{}' role", ADMIN_ACCESS_ROLE_NAME);
+            log.info("Seeder: created admin user '{}' with '{}' role", ADMIN_USER_EMAIL, SUPER_ADMIN_ROLE_NAME);
             return;
         }
 
-        int updated = 0;
-        for (User admin : admins) {
-            Set<Long> currentRoleIds = admin.getUserRoles().stream()
-                    .map(UserRole::getId)
-                    .collect(Collectors.toCollection(HashSet::new));
-            if (currentRoleIds.contains(adminAccessRole.getId())) {
-                continue;
-            }
-
-            admin.addRoleAssignment(adminAccessRole);
+        // Ensure the existing admin user has the Super Admin role assigned
+        boolean hasSuperAdmin = admin.getUserRoles().stream()
+                .anyMatch(r -> r.getId() != null && r.getId().equals(superAdminRole.getId()));
+        if (!hasSuperAdmin) {
+            admin.addRoleAssignment(superAdminRole);
             userRepository.save(admin);
-            updated++;
+            log.info("Seeder: assigned '{}' role to existing admin user '{}'", SUPER_ADMIN_ROLE_NAME, ADMIN_USER_EMAIL);
         }
-
-        log.info("Seeder: ensured '{}' role for {} ADMIN user(s)", ADMIN_ACCESS_ROLE_NAME, updated);
     }
 }
