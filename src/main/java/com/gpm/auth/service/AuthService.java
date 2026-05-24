@@ -165,6 +165,7 @@ public class AuthService {
                 .flatMap(ur -> ur.getAccessRoles().stream())
                 .flatMap(ar -> ar.getFunctionalities().stream())
                 .filter(Functionality::isEnabled)
+                .filter(f -> f.getCode() != null)
                 .map(f -> f.getCode().getCode())
                 .distinct()
                 .toList();
@@ -196,6 +197,7 @@ public class AuthService {
                 .flatMap(er -> er.getAccessRoles().stream())
                 .flatMap(ar -> ar.getFunctionalities().stream())
                 .filter(Functionality::isEnabled)
+                .filter(f -> f.getCode() != null)
                 .map(f -> f.getCode().getCode())
                 .distinct()
                 .toList();

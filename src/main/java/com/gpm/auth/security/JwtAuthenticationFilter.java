@@ -52,18 +52,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 UserDetails userDetails = userDetailsService.loadUserByUsername(email);
 
                 List<GrantedAuthority> effectiveAuthorities = new ArrayList<>(userDetails.getAuthorities());
-                // Merge token authorities as fallback so a valid, recently-issued token keeps working
-                // even if DB role-assignment rows were migrated/updated after login.
-                List<String> tokenAuthorities = jwtService.extractAuthorities(token);
-                if (tokenAuthorities != null) {
-                    tokenAuthorities.stream()
-                            .map(SimpleGrantedAuthority::new)
-                            .forEach(authority -> {
-                                if (!effectiveAuthorities.contains(authority)) {
-                                    effectiveAuthorities.add(authority);
-                                }
-                            });
-                }
                 String tokenRole = claims.get("role", String.class);
                 if ("ADMIN".equalsIgnoreCase(tokenRole)) {
                     SimpleGrantedAuthority adminAuthority = new SimpleGrantedAuthority("ROLE_ADMIN");

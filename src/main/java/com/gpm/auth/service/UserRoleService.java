@@ -169,7 +169,7 @@ public class UserRoleService {
         return FunctionalityDTO.builder()
                 .id(f.getId())
                 .name(f.getName())
-                .code(f.getCode().getCode())
+                .code(f.getCode() != null ? f.getCode().getCode() : null)
                 .enabled(f.isEnabled())
                 .controlType(f.getControlType() != null ? f.getControlType().name().toLowerCase() : null)
                 .build();

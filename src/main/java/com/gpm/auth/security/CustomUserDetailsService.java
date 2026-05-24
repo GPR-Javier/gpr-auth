@@ -56,6 +56,7 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .flatMap(er -> er.getAccessRoles().stream())
                 .flatMap(ar -> ar.getFunctionalities().stream())
                 .filter(Functionality::isEnabled)
+                .filter(f -> f.getCode() != null)
                 .map(f -> new SimpleGrantedAuthority(f.getCode().getCode()))
                 .distinct()
                 .forEach(authorities::add);

@@ -2,7 +2,6 @@ package com.gpm.auth.security;
 
 import com.gpm.common.entity.UserRole;
 import com.gpm.common.entity.User;
-import com.gpm.common.entity.Functionality;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
@@ -43,24 +42,16 @@ public class JwtService {
     }
 
     private String buildAccessToken(User user, List<UserRole> roles) {
-        List<String> authorities = roles.stream()
-                .flatMap(er -> er.getAccessRoles().stream())
-                .flatMap(ar -> ar.getFunctionalities().stream())
-                .filter(Functionality::isEnabled)
-                .map(f -> f.getCode().getCode())
-                .distinct()
-                .toList();
-
         List<String> roleNames = roles.stream().map(UserRole::getName).toList();
-        // Derive the role claim from UserRole.isAdmin — User.role column is no longer authoritative.
         boolean isAdmin = roles.stream().anyMatch(UserRole::isAdmin);
+        Long userRoleId = roles.isEmpty() ? null : roles.get(0).getId();
 
         return Jwts.builder()
                 .subject(user.getId().toString())
                 .claim("email", user.getEmail())
                 .claim("role", isAdmin ? "ADMIN" : "EMPLOYEE")
                 .claim("userRoleNames", roleNames)
-                .claim("authorities", authorities)
+                .claim("userRoleId", userRoleId)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + accessTokenExpiry))
                 .signWith(signingKey())
@@ -98,9 +89,9 @@ public class JwtService {
         return Long.parseLong(extractAllClaims(token).getSubject());
     }
 
-    @SuppressWarnings("unchecked")
-    public List<String> extractAuthorities(String token) {
-        return (List<String>) extractAllClaims(token).get("authorities");
+    public Long extractUserRoleId(String token) {
+        Object val = extractAllClaims(token).get("userRoleId");
+        return val instanceof Number ? ((Number) val).longValue() : null;
     }
 
     // ── helpers ──────────────────────────────────────────────────────
