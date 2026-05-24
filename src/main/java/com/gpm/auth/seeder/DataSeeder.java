@@ -46,7 +46,8 @@ public class DataSeeder implements ApplicationRunner {
             "OVERTIME",
             "PAYROLL",
             "SCHEDULE_CHANGE_REQUEST",
-            "CHANGE_TIME_REQUEST"
+            "CHANGE_TIME_REQUEST",
+            "SALARY_DISPUTE"
     );
 
     private final AccessRoleRepository accessRoleRepository;
@@ -65,19 +66,21 @@ public class DataSeeder implements ApplicationRunner {
                     FunctionalityCode.DTR_REQUEST_DTR_CORRECTION, FunctionalityCode.DTR_REQUIRE_CAMERA_VALIDATION),
             entry("PAYROLL", "My Payslip", "Self Service",
                     FunctionalityCode.PAYROLL_VIEW_PAYSLIP, FunctionalityCode.PAYROLL_DOWNLOAD_PAYSLIP, FunctionalityCode.PAYROLL_EXPORT_PAYROLL_HISTORY, FunctionalityCode.PAYROLL_VIEW_YTD_SUMMARY),
-            // ── Employee requests (My Requests) ───────────────────────────────────────
-            entry("LEAVE", "My Leave", "My Requests",
+            // ── Employee requests (Request) ────────────────────────────────────────────
+            entry("LEAVE", "File Leave", "Request",
                     FunctionalityCode.LEAVE_FILE_LEAVE, FunctionalityCode.LEAVE_VIEW_OWN_LEAVE, FunctionalityCode.LEAVE_VIEW_LEAVE_BALANCE, FunctionalityCode.LEAVE_CANCEL_LEAVE),
-            entry("OVERTIME", "Overtime", "My Requests",
+            entry("OVERTIME", "Overtime", "Request",
                     FunctionalityCode.OVERTIME_FILE_OVERTIME, FunctionalityCode.OVERTIME_VIEW_OWN_OVERTIME),
-            entry("CERTIFICATE_OF_EMPLOYMENT", "COE", "My Requests",
+            entry("CERTIFICATE_OF_EMPLOYMENT", "COE", "Request",
                     FunctionalityCode.CERTIFICATE_OF_EMPLOYMENT_REQUEST_COE, FunctionalityCode.CERTIFICATE_OF_EMPLOYMENT_VIEW_OWN_COE),
-            entry("OFFICIAL_BUSINESS", "OR", "My Requests",
+            entry("OFFICIAL_BUSINESS", "OR", "Request",
                     FunctionalityCode.OFFICIAL_BUSINESS_FILE_OB, FunctionalityCode.OFFICIAL_BUSINESS_VIEW_OWN_OB),
-            entry("CHANGE_TIME_REQUEST", "Change Time In/Time Out", "My Requests",
+            entry("CHANGE_TIME_REQUEST", "Change Time In/Time Out", "Request",
                     FunctionalityCode.CHANGE_TIME_REQUEST_FILE, FunctionalityCode.CHANGE_TIME_REQUEST_VIEW_OWN, FunctionalityCode.CHANGE_TIME_REQUEST_CANCEL),
-            entry("SCHEDULE_CHANGE_REQUEST", "Schedule", "My Requests",
+            entry("SCHEDULE_CHANGE_REQUEST", "Change Schedule", "Request",
                     FunctionalityCode.SCHEDULE_CHANGE_REQUEST_FILE, FunctionalityCode.SCHEDULE_CHANGE_REQUEST_VIEW_OWN, FunctionalityCode.SCHEDULE_CHANGE_REQUEST_CANCEL_OWN),
+            entry("SALARY_DISPUTE", "Salary Dispute", "Request",
+                    FunctionalityCode.SALARY_DISPUTE_FILE, FunctionalityCode.SALARY_DISPUTE_VIEW_OWN, FunctionalityCode.SALARY_DISPUTE_CANCEL),
             // ── Team (admin) ───────────────────────────────────────────────────────────
             entry("ATTENDANCE_MANAGEMENT", "Attendance", "Team",
                     FunctionalityCode.ATTENDANCE_MANAGEMENT_VIEW_ALL_ATTENDANCE,
@@ -87,28 +90,28 @@ public class DataSeeder implements ApplicationRunner {
                     FunctionalityCode.SCHEDULE_MANAGEMENT_VIEW_SCHEDULES,
                     FunctionalityCode.SCHEDULE_MANAGEMENT_UPLOAD_SCHEDULES,
                     FunctionalityCode.SCHEDULE_MANAGEMENT_MANAGE_SCHEDULES),
-            entry("LEAVE_MANAGEMENT", "Leave Management", "Team",
+            entry("LEAVE_MANAGEMENT", "Leave Management", "Requests",
                     FunctionalityCode.LEAVE_MANAGEMENT_VIEW_ALL_LEAVE_REQUESTS, FunctionalityCode.LEAVE_MANAGEMENT_APPROVE_LEAVE, FunctionalityCode.LEAVE_MANAGEMENT_REJECT_LEAVE),
             entry("EMPLOYEE_MANAGEMENT", "Employees", "Team",
                     FunctionalityCode.EMPLOYEE_MANAGEMENT_VIEW_EMPLOYEES, FunctionalityCode.EMPLOYEE_MANAGEMENT_ADD_EMPLOYEE,
                     FunctionalityCode.EMPLOYEE_MANAGEMENT_VIEW_EMPLOYEE_PROFILE, FunctionalityCode.EMPLOYEE_MANAGEMENT_SEARCH_EMPLOYEES),
-            entry("SCHEDULE_CHANGE_APPROVAL", "Schedule Change Approval", "Team",
+            entry("SCHEDULE_CHANGE_APPROVAL", "Schedule Changes", "Requests",
                     FunctionalityCode.SCHEDULE_CHANGE_REQUEST_VIEW_ALL,
                     FunctionalityCode.SCHEDULE_CHANGE_REQUEST_APPROVE,
                     FunctionalityCode.SCHEDULE_CHANGE_REQUEST_REJECT),
-            entry("COE_MANAGEMENT", "COE", "Team",
+            entry("COE_MANAGEMENT", "COE", "Requests",
                     FunctionalityCode.COE_MANAGEMENT_VIEW_ALL,
                     FunctionalityCode.COE_MANAGEMENT_APPROVE,
                     FunctionalityCode.COE_MANAGEMENT_REJECT),
-            entry("OR_MANAGEMENT", "OR", "Team",
+            entry("OR_MANAGEMENT", "OR", "Business",
                     FunctionalityCode.OR_MANAGEMENT_VIEW_ALL,
                     FunctionalityCode.OR_MANAGEMENT_APPROVE,
                     FunctionalityCode.OR_MANAGEMENT_REJECT),
-            entry("CHANGE_TIME_MANAGEMENT", "Change Time In/Time Out", "Team",
+            entry("CHANGE_TIME_MANAGEMENT", "Change Time In/Time Out", "Requests",
                     FunctionalityCode.CHANGE_TIME_MANAGEMENT_VIEW_ALL,
                     FunctionalityCode.CHANGE_TIME_MANAGEMENT_APPROVE,
                     FunctionalityCode.CHANGE_TIME_MANAGEMENT_REJECT),
-            entry("OVERTIME_MANAGEMENT", "Overtime", "Team",
+            entry("OVERTIME_MANAGEMENT", "Overtime", "Requests",
                     FunctionalityCode.OVERTIME_MANAGEMENT_VIEW_ALL,
                     FunctionalityCode.OVERTIME_MANAGEMENT_APPROVE,
                     FunctionalityCode.OVERTIME_MANAGEMENT_REJECT),
@@ -123,6 +126,35 @@ public class DataSeeder implements ApplicationRunner {
                     FunctionalityCode.REWARDS_MANAGE_REWARDS,
                     FunctionalityCode.REWARDS_UPLOAD_RATINGS,
                     FunctionalityCode.REWARDS_MANAGE_RULES),
+            entry("SALARY_DISPUTE_MANAGEMENT", "Salary Disputes", "Requests",
+                    FunctionalityCode.SALARY_DISPUTE_MANAGEMENT_VIEW_ALL,
+                    FunctionalityCode.SALARY_DISPUTE_MANAGEMENT_RESOLVE,
+                    FunctionalityCode.SALARY_DISPUTE_MANAGEMENT_REJECT),
+            // ── Business (admin) ───────────────────────────────────────────────────────
+            entry("OFFICIAL_RECEIPTS", "Official Receipts", "Business",
+                    FunctionalityCode.OFFICIAL_RECEIPTS_VIEW_ALL,
+                    FunctionalityCode.OFFICIAL_RECEIPTS_APPROVE,
+                    FunctionalityCode.OFFICIAL_RECEIPTS_REJECT,
+                    FunctionalityCode.OFFICIAL_RECEIPTS_EXPORT),
+            entry("PERMITS", "Permits", "Business",
+                    FunctionalityCode.PERMITS_VIEW_ALL,
+                    FunctionalityCode.PERMITS_CREATE,
+                    FunctionalityCode.PERMITS_EDIT,
+                    FunctionalityCode.PERMITS_DELETE),
+            entry("BUSINESS_TRIP", "Business Trip", "Business",
+                    FunctionalityCode.BUSINESS_TRIP_VIEW_ALL,
+                    FunctionalityCode.BUSINESS_TRIP_APPROVE,
+                    FunctionalityCode.BUSINESS_TRIP_REJECT),
+            entry("EXPENSE_REPORTS", "Expense Reports", "Business",
+                    FunctionalityCode.EXPENSE_REPORTS_VIEW_ALL,
+                    FunctionalityCode.EXPENSE_REPORTS_APPROVE,
+                    FunctionalityCode.EXPENSE_REPORTS_REJECT,
+                    FunctionalityCode.EXPENSE_REPORTS_EXPORT),
+            entry("CONTRACTS", "Contracts", "Business",
+                    FunctionalityCode.CONTRACTS_VIEW_ALL,
+                    FunctionalityCode.CONTRACTS_UPLOAD,
+                    FunctionalityCode.CONTRACTS_MANAGE,
+                    FunctionalityCode.CONTRACTS_DELETE),
             // ── System (admin) ─────────────────────────────────────────────────────────
             entry("USER_MANAGEMENT", "User Management", "System",
                     FunctionalityCode.USER_MANAGEMENT_VIEW_USERS, FunctionalityCode.USER_MANAGEMENT_CREATE_USER,
@@ -166,16 +198,34 @@ public class DataSeeder implements ApplicationRunner {
     /**
      * One-time migration: backfills the new role_type column from the legacy is_admin boolean.
      * Runs on every startup; skips rows that already have role_type set.
+     * Defensive: checks if is_admin column exists before using it (fresh DBs won't have it).
      */
     private void migrateRoleTypeColumn() {
-        int adminMigrated = jdbcTemplate.update(
-                "UPDATE user_roles SET role_type = 'ADMIN' WHERE is_admin = true AND role_type IS NULL"
+        Boolean isAdminExists = jdbcTemplate.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_roles' AND column_name = 'is_admin')",
+                Boolean.class
         );
+        if (Boolean.TRUE.equals(isAdminExists)) {
+            int adminMigrated = jdbcTemplate.update(
+                    "UPDATE user_roles SET role_type = 'ADMIN' WHERE is_admin = true AND role_type IS NULL"
+            );
+            if (adminMigrated > 0) {
+                log.info("Seeder: backfilled {} ADMIN rows from is_admin column", adminMigrated);
+            }
+        }
         int employeeMigrated = jdbcTemplate.update(
                 "UPDATE user_roles SET role_type = 'EMPLOYEE' WHERE role_type IS NULL"
         );
-        if (adminMigrated > 0 || employeeMigrated > 0) {
-            log.info("Seeder: migrated role_type column — {} ADMIN, {} EMPLOYEE rows", adminMigrated, employeeMigrated);
+        if (employeeMigrated > 0) {
+            log.info("Seeder: backfilled {} EMPLOYEE rows (NULL role_type)", employeeMigrated);
+        }
+        // Fix any stale role_type values that don't match the current RoleType enum.
+        // These would cause IllegalArgumentException when Hibernate loads the entity.
+        int invalidFixed = jdbcTemplate.update(
+                "UPDATE user_roles SET role_type = 'EMPLOYEE' WHERE role_type NOT IN ('ADMIN', 'EMPLOYEE')"
+        );
+        if (invalidFixed > 0) {
+            log.warn("Seeder: fixed {} user_roles rows with invalid role_type values (reset to EMPLOYEE)", invalidFixed);
         }
     }
 

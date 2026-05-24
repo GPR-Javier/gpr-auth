@@ -18,6 +18,7 @@ import com.gpm.common.entity.UserRole;
 import com.gpm.common.entity.Functionality;
 import com.gpm.common.entity.User;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.stereotype.Service;
@@ -26,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthService {
@@ -42,10 +44,19 @@ public class AuthService {
                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
         );
 
-        User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new IllegalStateException("User disappeared after authentication"));
-
-        List<UserRole> activeRoles = userRoleAccessResolver.resolveActiveUserRoles(user);
+        log.debug("Authentication succeeded for {}; loading user entity", request.getEmail());
+        User user;
+        List<UserRole> activeRoles;
+        try {
+            user = userRepository.findByEmail(request.getEmail())
+                    .orElseThrow(() -> new IllegalStateException("User disappeared after authentication"));
+            log.debug("User {} loaded, resolving active roles (assignments={})", request.getEmail(), user.getRoleAssignments().size());
+            activeRoles = userRoleAccessResolver.resolveActiveUserRoles(user);
+            log.debug("Active roles for {}: {}", request.getEmail(), activeRoles.stream().map(UserRole::getName).toList());
+        } catch (Exception e) {
+            log.error("Post-authentication failure for {}: [{}] {}", request.getEmail(), e.getClass().getSimpleName(), e.getMessage(), e);
+            throw e;
+        }
 
         if (activeRoles.size() > 1) {
             LocalDateTime now = LocalDateTime.now();
