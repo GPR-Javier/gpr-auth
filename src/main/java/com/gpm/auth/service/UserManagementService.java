@@ -8,11 +8,15 @@ import com.gpm.common.exception.ResourceNotFoundException;
 import com.gpm.auth.repository.UserRoleRepository;
 import com.gpm.auth.repository.UserRepository;
 import com.gpm.auth.repository.UserRoleAssignmentRepository;
+import com.gpm.auth.repository.JobPositionRepository;
+import com.gpm.auth.repository.UserPositionRepository;
 import com.gpm.common.dto.UserDTO;
 import com.gpm.common.dto.UserRoleSummaryDTO;
 import com.gpm.common.entity.UserRole;
 import com.gpm.common.entity.User;
 import com.gpm.common.entity.UserRoleAssignment;
+import com.gpm.common.entity.JobPosition;
+import com.gpm.common.entity.UserPosition;
 import com.gpm.common.enums.Role;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -38,6 +42,8 @@ public class UserManagementService {
     private final UserRepository userRepository;
     private final UserRoleRepository userRoleRepository;
     private final UserRoleAssignmentRepository roleAssignmentRepository;
+    private final JobPositionRepository jobPositionRepository;
+    private final UserPositionRepository userPositionRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Transactional
@@ -62,7 +68,23 @@ public class UserManagementService {
                 .build();
 
         userRoles.forEach(user::addRoleAssignment);
-        return toDTO(userRepository.save(user));
+        User saved = userRepository.save(user);
+
+        // Assign job positions (first in list is primary)
+        List<Long> positionIds = request.getJobPositionIds();
+        for (int i = 0; i < positionIds.size(); i++) {
+            Long posId = positionIds.get(i);
+            JobPosition position = jobPositionRepository.findById(posId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Job position not found: " + posId));
+            UserPosition up = UserPosition.builder()
+                    .user(saved)
+                    .jobPosition(position)
+                    .primary(i == 0)
+                    .build();
+            userPositionRepository.save(up);
+        }
+
+        return toDTO(saved);
     }
 
     /**
