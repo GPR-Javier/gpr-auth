@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @RestController
-@RequestMapping("/admin/access-roles")
+@RequestMapping("/access-roles")
 @RequiredArgsConstructor
 public class AdminAccessRoleController {
 
