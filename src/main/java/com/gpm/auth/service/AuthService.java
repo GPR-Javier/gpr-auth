@@ -1,13 +1,16 @@
 package com.gpm.auth.service;
 
 import com.gpm.auth.dto.LoginResult;
+import com.gpm.auth.dto.RegisterRequest;
 import com.gpm.auth.dto.RoleSelectionRequest;
 import com.gpm.auth.dto.SwitchRoleRequest;
 import com.gpm.common.entity.RefreshToken;
+import com.gpm.common.exception.DuplicateResourceException;
 import com.gpm.common.exception.InvalidTokenException;
 import com.gpm.common.exception.ResourceNotFoundException;
 import com.gpm.auth.repository.RefreshTokenRepository;
 import com.gpm.auth.repository.UserRepository;
+import com.gpm.auth.repository.UserRoleRepository;
 import com.gpm.auth.security.JwtService;
 import com.gpm.common.dto.AuthRequest;
 import com.gpm.common.dto.AuthResponse;
@@ -17,10 +20,13 @@ import com.gpm.common.dto.UserRoleSummaryDTO;
 import com.gpm.common.entity.UserRole;
 import com.gpm.common.entity.Functionality;
 import com.gpm.common.entity.User;
+import com.gpm.common.enums.Role;
+import com.gpm.common.enums.RoleType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,9 +40,11 @@ public class AuthService {
 
     private final AuthenticationManager authenticationManager;
     private final UserRepository userRepository;
+    private final UserRoleRepository userRoleRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtService jwtService;
     private final UserRoleAccessResolver userRoleAccessResolver;
+    private final PasswordEncoder passwordEncoder;
 
     @Transactional
     public LoginResult login(AuthRequest request) {
@@ -139,6 +147,31 @@ public class AuthService {
     }
 
     @Transactional
+    public LoginResult register(RegisterRequest req) {
+        if (userRepository.findByEmail(req.getEmail().toLowerCase().trim()).isPresent()) {
+            throw new DuplicateResourceException("An account with this email already exists");
+        }
+
+        UserRole applicantRole = userRoleRepository.findByName("Applicant")
+                .orElseThrow(() -> new IllegalStateException("Applicant role not seeded — restart the auth service"));
+
+        User user = User.builder()
+                .firstName(req.getFirstName().trim())
+                .lastName(req.getLastName().trim())
+                .email(req.getEmail().toLowerCase().trim())
+                .password(passwordEncoder.encode(req.getPassword()))
+                .employeeId("APP-" + System.currentTimeMillis())
+                .role(Role.APPLICANT)
+                .active(true)
+                .build();
+        user.addRoleAssignment(applicantRole);
+        userRepository.save(user);
+
+        log.info("Registered new applicant: {}", user.getEmail());
+        return issueTokens(user, applicantRole, List.of(applicantRole));
+    }
+
+    @Transactional
     public void logout(String refreshToken) {
         refreshTokenRepository.findByToken(refreshToken)
                 .ifPresent(rt -> {
@@ -207,7 +240,8 @@ public class AuthService {
         // Derive role label from whether any active role is an admin-type role.
         // This replaces the static User.role column as the driver for the sidebar badge.
         boolean isAdmin = roles.stream().anyMatch(UserRole::isAdmin);
-        String roleLabel = isAdmin ? "ADMIN" : "EMPLOYEE";
+        boolean isApplicant = roles.stream().anyMatch(r -> r.getRoleType() == RoleType.APPLICANT);
+        String roleLabel = isAdmin ? "ADMIN" : (isApplicant ? "APPLICANT" : "EMPLOYEE");
 
         return AuthResponse.builder()
                 .role(roleLabel)

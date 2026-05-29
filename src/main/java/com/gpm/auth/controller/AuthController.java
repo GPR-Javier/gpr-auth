@@ -1,6 +1,7 @@
 package com.gpm.auth.controller;
 
 import com.gpm.auth.dto.LoginResult;
+import com.gpm.auth.dto.RegisterRequest;
 import com.gpm.auth.dto.RoleSelectionRequest;
 import com.gpm.auth.dto.SwitchRoleRequest;
 import com.gpm.auth.service.AuthService;
@@ -12,6 +13,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -28,6 +30,16 @@ public class AuthController {
     private static final int REFRESH_TOKEN_MAX_AGE = 7 * 24 * 3600; // 7 days
 
     private final AuthService authService;
+
+    @PostMapping("/register")
+    public ResponseEntity<AuthResponse> register(
+            @Valid @RequestBody RegisterRequest request,
+            HttpServletResponse response
+    ) {
+        LoginResult result = authService.register(request);
+        setTokenCookies(response, result.accessToken(), result.refreshToken());
+        return ResponseEntity.status(HttpStatus.CREATED).body(result.response());
+    }
 
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(

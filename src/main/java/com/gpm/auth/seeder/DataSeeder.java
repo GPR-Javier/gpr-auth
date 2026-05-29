@@ -35,6 +35,7 @@ import java.util.stream.Collectors;
 public class DataSeeder implements ApplicationRunner {
 
     private static final String SUPER_ADMIN_ROLE_NAME = "Super Admin";
+    private static final String APPLICANT_ROLE_NAME  = "Applicant";
     private static final String ADMIN_USER_EMAIL = "admin@company.com";
 
     /** Page codes whose functionalities are employee self-service (controlType = EMPLOYEE). All others are ADMIN. */
@@ -176,10 +177,12 @@ public class DataSeeder implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         migrateLegacyRoleAssignments();
         migrateRoleTypeColumn();
+        syncRoleTypeConstraint();
         syncFunctionalityConstraint();
         List<AccessRole> allAccessRoles = seedAccessRoles();
         UserRole superAdminRole = seedSuperAdminRole(allAccessRoles);
         seedAdminUser(superAdminRole);
+        seedApplicantRole();
     }
 
     /**
@@ -209,7 +212,7 @@ public class DataSeeder implements ApplicationRunner {
         // Fix any stale role_type values that don't match the current RoleType enum.
         // These would cause IllegalArgumentException when Hibernate loads the entity.
         int invalidFixed = jdbcTemplate.update(
-                "UPDATE user_roles SET role_type = 'EMPLOYEE' WHERE role_type NOT IN ('ADMIN', 'EMPLOYEE')"
+                "UPDATE user_roles SET role_type = 'EMPLOYEE' WHERE role_type NOT IN ('ADMIN', 'EMPLOYEE', 'APPLICANT')"
         );
         if (invalidFixed > 0) {
             log.warn("Seeder: fixed {} user_roles rows with invalid role_type values (reset to EMPLOYEE)", invalidFixed);
@@ -255,6 +258,22 @@ public class DataSeeder implements ApplicationRunner {
         int removed = jdbcTemplate.update("DELETE FROM functionalities WHERE code NOT IN (" + allowedValues + ")");
         jdbcTemplate.execute("ALTER TABLE functionalities ADD CONSTRAINT functionalities_code_check CHECK (code IN (" + allowedValues + "))");
         log.info("Seeder: synchronized functionalities_code_check with {} enum values (removed {} legacy rows)", FunctionalityCode.values().length, removed);
+    }
+
+    /**
+     * Rebuilds the user_roles.role_type CHECK constraint from the current RoleType enum.
+     * Hibernate generates this constraint once and never updates it on ddl-auto=update, so adding
+     * a new enum value (e.g. APPLICANT) would otherwise be rejected at insert time.
+     */
+    private void syncRoleTypeConstraint() {
+        String allowedValues = Arrays.stream(RoleType.values())
+                .map(RoleType::name)
+                .map(value -> "'" + value + "'")
+                .collect(Collectors.joining(", "));
+
+        jdbcTemplate.execute("ALTER TABLE user_roles DROP CONSTRAINT IF EXISTS user_roles_role_type_check");
+        jdbcTemplate.execute("ALTER TABLE user_roles ADD CONSTRAINT user_roles_role_type_check CHECK (role_type IN (" + allowedValues + "))");
+        log.info("Seeder: synchronized user_roles_role_type_check with {} enum values", RoleType.values().length);
     }
 
     // ── Step 1: Seed AccessRoles + Functionalities ────────────────────
@@ -353,6 +372,28 @@ public class DataSeeder implements ApplicationRunner {
         UserRole saved = userRoleRepository.save(superAdmin);
         log.info("Seeder: upserted UserRole '{}' with {} access roles", SUPER_ADMIN_ROLE_NAME, adminAccessRoles.size());
         return saved;
+    }
+
+    // ── Step 3b: Seed "Applicant" UserRole ───────────────────────────
+
+    private void seedApplicantRole() {
+        UserRole applicant = userRoleRepository.findByName(APPLICANT_ROLE_NAME).orElse(null);
+        if (applicant == null) {
+            applicant = UserRole.builder()
+                    .name(APPLICANT_ROLE_NAME)
+                    .description("Job applicant — can apply to open positions and track application status")
+                    .roleType(RoleType.APPLICANT)
+                    .active(true)
+                    .build();
+            userRoleRepository.save(applicant);
+            log.info("Seeder: created '{}' UserRole", APPLICANT_ROLE_NAME);
+        } else {
+            if (applicant.getRoleType() != RoleType.APPLICANT) {
+                applicant.setRoleType(RoleType.APPLICANT);
+                userRoleRepository.save(applicant);
+                log.info("Seeder: updated '{}' UserRole roleType to APPLICANT", APPLICANT_ROLE_NAME);
+            }
+        }
     }
 
     // ── Step 3: Seed default admin user ──────────────────────────────
