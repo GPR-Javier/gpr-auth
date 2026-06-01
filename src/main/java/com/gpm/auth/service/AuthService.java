@@ -18,6 +18,7 @@ import com.gpm.common.dto.RoleInfo;
 import com.gpm.common.dto.UserDTO;
 import com.gpm.common.dto.UserRoleSummaryDTO;
 import com.gpm.common.entity.UserRole;
+import com.gpm.common.entity.UserRoleAssignment;
 import com.gpm.common.entity.Functionality;
 import com.gpm.common.entity.User;
 import com.gpm.common.enums.Role;
@@ -31,6 +32,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
@@ -74,6 +76,7 @@ public class AuthService {
                             .name(er.getName())
                             .description(er.getDescription())
                             .temporary(isTemporaryRole(user, er.getId(), now))
+                            .onboarded(isRoleOnboarded(user, er.getId()))
                             .build())
                     .toList();
             AuthResponse response = AuthResponse.builder()
@@ -180,12 +183,47 @@ public class AuthService {
                 });
     }
 
-    public UserDTO me(String email) {
+    public UserDTO me(String email, Long activeRoleId) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("Authenticated user not found in DB"));
         UserDTO dto = toDTO(user);
         dto.setAuthorities(computeEffectiveAuthorities(user));
+
+        UserRoleAssignment active = findAssignment(user, activeRoleId);
+        // Unknown/ambiguous active role → treat as onboarded so we never force an unintended tour.
+        dto.setOnboarded(active == null || active.isOnboarded());
+        dto.setOnboardingDone(active != null ? new ArrayList<>(active.getOnboardingDone()) : List.of());
         return dto;
+    }
+
+    /**
+     * Appends a screen key to the active role's per-screen onboarding progress (idempotent).
+     * Returns the refreshed onboarding state so the caller can update its store without a re-login.
+     */
+    @Transactional
+    public AuthResponse completeScreenOnboarding(String email, Long activeRoleId, String screenKey) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user not found in DB"));
+        UserRoleAssignment active = requireAssignment(user, activeRoleId);
+
+        List<String> done = new ArrayList<>(active.getOnboardingDone());
+        if (!done.contains(screenKey)) {
+            done.add(screenKey);
+            active.setOnboardingDone(done); // new list instance so Hibernate detects the JSON change
+            userRepository.save(user);
+        }
+        return buildAuthResponse(user, active.getUserRole(), userRoleAccessResolver.resolveActiveUserRoles(user));
+    }
+
+    /** Marks the active role as fully onboarded (the global "skip all"). */
+    @Transactional
+    public AuthResponse skipOnboarding(String email, Long activeRoleId) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user not found in DB"));
+        UserRoleAssignment active = requireAssignment(user, activeRoleId);
+        active.setOnboarded(true);
+        userRepository.save(user);
+        return buildAuthResponse(user, active.getUserRole(), userRoleAccessResolver.resolveActiveUserRoles(user));
     }
 
     /**
@@ -243,12 +281,49 @@ public class AuthService {
         boolean isApplicant = roles.stream().anyMatch(r -> r.getRoleType() == RoleType.APPLICANT);
         String roleLabel = isAdmin ? "ADMIN" : (isApplicant ? "APPLICANT" : "EMPLOYEE");
 
+        // Onboarding state of the *active* role: the selected role if one was chosen, otherwise
+        // the sole active role. When it can't be resolved unambiguously, default to onboarded so
+        // we never force an unintended tour.
+        Long activeRoleId = selectedRole != null ? selectedRole.getId()
+                : (activeRoles.size() == 1 ? activeRoles.get(0).getId() : null);
+        UserRoleAssignment activeAssignment = findAssignment(user, activeRoleId);
+        boolean onboarded = activeAssignment == null || activeAssignment.isOnboarded();
+        List<String> onboardingDone = activeAssignment != null
+                ? new ArrayList<>(activeAssignment.getOnboardingDone())
+                : List.of();
+
         return AuthResponse.builder()
                 .role(roleLabel)
                 .userRoleNames(userRoleNames)
                 .authorities(authorities)
+                .onboarded(onboarded)
+                .onboardingDone(onboardingDone)
                 .requiresRoleSelection(false)
                 .build();
+    }
+
+    /** Finds the permanent role assignment backing the given role id, or null. */
+    private UserRoleAssignment findAssignment(User user, Long roleId) {
+        if (roleId == null) {
+            return null;
+        }
+        return user.getRoleAssignments().stream()
+                .filter(a -> a.getUserRole() != null && roleId.equals(a.getUserRole().getId()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private UserRoleAssignment requireAssignment(User user, Long roleId) {
+        UserRoleAssignment assignment = findAssignment(user, roleId);
+        if (assignment == null) {
+            throw new ResourceNotFoundException("No active role assignment to onboard for this user");
+        }
+        return assignment;
+    }
+
+    private boolean isRoleOnboarded(User user, Long roleId) {
+        UserRoleAssignment assignment = findAssignment(user, roleId);
+        return assignment == null || assignment.isOnboarded();
     }
 
     private UserDTO toDTO(User user) {

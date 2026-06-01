@@ -38,7 +38,7 @@ public class DataSeeder implements ApplicationRunner {
     private static final String APPLICANT_ROLE_NAME  = "Applicant";
     private static final String ADMIN_USER_EMAIL = "admin@company.com";
 
-    /** Page codes whose functionalities are employee self-service (controlType = EMPLOYEE). All others are ADMIN. */
+    /** Page codes whose functionalities are employee self-service (controlType = EMPLOYEE). */
     private static final Set<String> EMPLOYEE_PAGE_CODES = Set.of(
             "DTR",
             "LEAVE",
@@ -49,6 +49,14 @@ public class DataSeeder implements ApplicationRunner {
             "SCHEDULE_CHANGE_REQUEST",
             "CHANGE_TIME_REQUEST",
             "SALARY_DISPUTE"
+    );
+
+    /** Page codes whose functionalities are applicant-facing (controlType = APPLICANT). All non-employee, non-applicant pages are ADMIN. */
+    private static final Set<String> APPLICANT_PAGE_CODES = Set.of(
+            "CAREERS",
+            "MY_APPLICATIONS",
+            "APPLICANT_INTERVIEWS",
+            "APPLICANT_OFFERS"
     );
 
     private final AccessRoleRepository accessRoleRepository;
@@ -169,7 +177,18 @@ public class DataSeeder implements ApplicationRunner {
                     FunctionalityCode.CONFIGURATION_EDIT_LEAVE_SETTINGS),
             // ── Recruitment (admin) ────────────────────────────────────────────────────
             entry("RECRUITMENT", "Recruitment", "Recruitment",
-                    FunctionalityCode.RECRUITMENT_VIEW_JOB_POSTINGS, FunctionalityCode.RECRUITMENT_VIEW_APPLICANTS, FunctionalityCode.RECRUITMENT_VIEW_JOB_DETAIL)
+                    FunctionalityCode.RECRUITMENT_VIEW_JOB_POSTINGS, FunctionalityCode.RECRUITMENT_VIEW_APPLICANTS, FunctionalityCode.RECRUITMENT_VIEW_JOB_DETAIL),
+            // ── Applicant portal (applicant) ─────────────────────────────────────────────
+            entry("CAREERS", "Careers", "Careers",
+                    FunctionalityCode.CAREERS_VIEW_JOBS, FunctionalityCode.CAREERS_VIEW_JOB_DETAIL,
+                    FunctionalityCode.CAREERS_SEARCH_JOBS, FunctionalityCode.CAREERS_APPLY_JOB),
+            entry("MY_APPLICATIONS", "My Applications", "Careers",
+                    FunctionalityCode.MY_APPLICATIONS_VIEW_OWN_APPLICATIONS, FunctionalityCode.MY_APPLICATIONS_VIEW_APPLICATION_STATUS,
+                    FunctionalityCode.MY_APPLICATIONS_WITHDRAW_APPLICATION),
+            entry("APPLICANT_INTERVIEWS", "Interviews", "Careers",
+                    FunctionalityCode.APPLICANT_INTERVIEWS_VIEW_INTERVIEWS, FunctionalityCode.APPLICANT_INTERVIEWS_CONFIRM_INTERVIEW),
+            entry("APPLICANT_OFFERS", "Offers", "Careers",
+                    FunctionalityCode.APPLICANT_OFFERS_VIEW_OFFERS, FunctionalityCode.APPLICANT_OFFERS_RESPOND_OFFER)
     );
 
     @Override
@@ -178,11 +197,13 @@ public class DataSeeder implements ApplicationRunner {
         migrateLegacyRoleAssignments();
         migrateRoleTypeColumn();
         syncRoleTypeConstraint();
+        syncUserRoleConstraint();
+        syncControlTypeConstraint();
         syncFunctionalityConstraint();
         List<AccessRole> allAccessRoles = seedAccessRoles();
         UserRole superAdminRole = seedSuperAdminRole(allAccessRoles);
         seedAdminUser(superAdminRole);
-        seedApplicantRole();
+        seedApplicantRole(allAccessRoles);
     }
 
     /**
@@ -276,6 +297,38 @@ public class DataSeeder implements ApplicationRunner {
         log.info("Seeder: synchronized user_roles_role_type_check with {} enum values", RoleType.values().length);
     }
 
+    /**
+     * Rebuilds the users.role CHECK constraint from the current Role enum.
+     * Hibernate generates this constraint once and never updates it on ddl-auto=update, so adding
+     * a new enum value (e.g. APPLICANT) would otherwise be rejected at insert time during registration.
+     */
+    private void syncUserRoleConstraint() {
+        String allowedValues = Arrays.stream(Role.values())
+                .map(Role::name)
+                .map(value -> "'" + value + "'")
+                .collect(Collectors.joining(", "));
+
+        jdbcTemplate.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check");
+        jdbcTemplate.execute("ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN (" + allowedValues + "))");
+        log.info("Seeder: synchronized users_role_check with {} enum values", Role.values().length);
+    }
+
+    /**
+     * Rebuilds the functionalities.control_type CHECK constraint from the current ControlType enum.
+     * Hibernate generates this constraint once and never updates it on ddl-auto=update, so adding
+     * a new enum value (e.g. APPLICANT) would otherwise be rejected when seeding applicant functionalities.
+     */
+    private void syncControlTypeConstraint() {
+        String allowedValues = Arrays.stream(ControlType.values())
+                .map(ControlType::name)
+                .map(value -> "'" + value + "'")
+                .collect(Collectors.joining(", "));
+
+        jdbcTemplate.execute("ALTER TABLE functionalities DROP CONSTRAINT IF EXISTS functionalities_control_type_check");
+        jdbcTemplate.execute("ALTER TABLE functionalities ADD CONSTRAINT functionalities_control_type_check CHECK (control_type IN (" + allowedValues + "))");
+        log.info("Seeder: synchronized functionalities_control_type_check with {} enum values", ControlType.values().length);
+    }
+
     // ── Step 1: Seed AccessRoles + Functionalities ────────────────────
 
     private List<AccessRole> seedAccessRoles() {
@@ -287,7 +340,9 @@ public class DataSeeder implements ApplicationRunner {
             FunctionalityCode[] codes = (FunctionalityCode[]) def[2];
             ControlType controlType = EMPLOYEE_PAGE_CODES.contains(pageCode)
                     ? ControlType.EMPLOYEE
-                    : ControlType.ADMIN;
+                    : APPLICANT_PAGE_CODES.contains(pageCode)
+                        ? ControlType.APPLICANT
+                        : ControlType.ADMIN;
 
             List<Functionality> functionalities = new ArrayList<>();
             for (FunctionalityCode code : codes) {
@@ -350,9 +405,11 @@ public class DataSeeder implements ApplicationRunner {
     // ── Step 2: Seed "Super Admin" UserRole ──────────────────────────
 
     private UserRole seedSuperAdminRole(List<AccessRole> allAccessRoles) {
-        // Super Admin gets only admin-control access roles (excludes employee self-service pages)
+        // Super Admin gets only admin-control access roles
+        // (excludes employee self-service pages and applicant portal pages)
         List<AccessRole> adminAccessRoles = allAccessRoles.stream()
                 .filter(ar -> !EMPLOYEE_PAGE_CODES.contains(ar.getPageCode()))
+                .filter(ar -> !APPLICANT_PAGE_CODES.contains(ar.getPageCode()))
                 .toList();
 
         UserRole superAdmin = userRoleRepository.findByName(SUPER_ADMIN_ROLE_NAME).orElse(null);
@@ -376,7 +433,12 @@ public class DataSeeder implements ApplicationRunner {
 
     // ── Step 3b: Seed "Applicant" UserRole ───────────────────────────
 
-    private void seedApplicantRole() {
+    private void seedApplicantRole(List<AccessRole> allAccessRoles) {
+        // Applicant gets only applicant-control access roles (the careers/candidate portal pages)
+        List<AccessRole> applicantAccessRoles = allAccessRoles.stream()
+                .filter(ar -> APPLICANT_PAGE_CODES.contains(ar.getPageCode()))
+                .toList();
+
         UserRole applicant = userRoleRepository.findByName(APPLICANT_ROLE_NAME).orElse(null);
         if (applicant == null) {
             applicant = UserRole.builder()
@@ -385,15 +447,14 @@ public class DataSeeder implements ApplicationRunner {
                     .roleType(RoleType.APPLICANT)
                     .active(true)
                     .build();
-            userRoleRepository.save(applicant);
-            log.info("Seeder: created '{}' UserRole", APPLICANT_ROLE_NAME);
-        } else {
-            if (applicant.getRoleType() != RoleType.APPLICANT) {
-                applicant.setRoleType(RoleType.APPLICANT);
-                userRoleRepository.save(applicant);
-                log.info("Seeder: updated '{}' UserRole roleType to APPLICANT", APPLICANT_ROLE_NAME);
-            }
         }
+        applicant.setRoleType(RoleType.APPLICANT);
+        applicant.setActive(true);
+        applicant.getAccessRoles().clear();
+        applicantAccessRoles.forEach(applicant::addAccessRole);
+
+        userRoleRepository.save(applicant);
+        log.info("Seeder: upserted '{}' UserRole with {} access roles", APPLICANT_ROLE_NAME, applicantAccessRoles.size());
     }
 
     // ── Step 3: Seed default admin user ──────────────────────────────

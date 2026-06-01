@@ -4,6 +4,7 @@ import com.gpm.auth.dto.LoginResult;
 import com.gpm.auth.dto.RegisterRequest;
 import com.gpm.auth.dto.RoleSelectionRequest;
 import com.gpm.auth.dto.SwitchRoleRequest;
+import com.gpm.auth.security.JwtService;
 import com.gpm.auth.service.AuthService;
 import com.gpm.common.dto.AuthRequest;
 import com.gpm.common.dto.AuthResponse;
@@ -30,6 +31,7 @@ public class AuthController {
     private static final int REFRESH_TOKEN_MAX_AGE = 7 * 24 * 3600; // 7 days
 
     private final AuthService authService;
+    private final JwtService jwtService;
 
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(
@@ -85,8 +87,37 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    public ResponseEntity<UserDTO> me(@AuthenticationPrincipal UserDetails userDetails) {
-        return ResponseEntity.ok(authService.me(userDetails.getUsername()));
+    public ResponseEntity<UserDTO> me(
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest request
+    ) {
+        Long activeRoleId = extractActiveRoleId(request);
+        return ResponseEntity.ok(authService.me(userDetails.getUsername(), activeRoleId));
+    }
+
+    /**
+     * Marks a single onboarding screen as completed/skipped for the user's active role.
+     * The active role is resolved from the JWT — no payload needed.
+     */
+    @PostMapping("/onboarding/screen/{screenKey}/complete")
+    public ResponseEntity<AuthResponse> completeScreenOnboarding(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable String screenKey,
+            HttpServletRequest request
+    ) {
+        Long activeRoleId = extractActiveRoleId(request);
+        return ResponseEntity.ok(
+                authService.completeScreenOnboarding(userDetails.getUsername(), activeRoleId, screenKey));
+    }
+
+    /** Skips all remaining onboarding for the user's active role (the global "skip all"). */
+    @PostMapping("/onboarding/skip-all")
+    public ResponseEntity<AuthResponse> skipOnboarding(
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest request
+    ) {
+        Long activeRoleId = extractActiveRoleId(request);
+        return ResponseEntity.ok(authService.skipOnboarding(userDetails.getUsername(), activeRoleId));
     }
 
     /**
@@ -127,6 +158,19 @@ public class AuthController {
         cookie.setPath("/");
         cookie.setMaxAge(maxAge);
         return cookie;
+    }
+
+    /** Resolves the active role id from the access-token cookie, or null if absent/unparseable. */
+    private Long extractActiveRoleId(HttpServletRequest request) {
+        String accessToken = extractCookie(request, "access_token");
+        if (accessToken == null) {
+            return null;
+        }
+        try {
+            return jwtService.extractUserRoleId(accessToken);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private String extractCookie(HttpServletRequest request, String name) {
