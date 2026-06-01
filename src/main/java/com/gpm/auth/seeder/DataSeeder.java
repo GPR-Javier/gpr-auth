@@ -56,7 +56,8 @@ public class DataSeeder implements ApplicationRunner {
             "CAREERS",
             "MY_APPLICATIONS",
             "APPLICANT_INTERVIEWS",
-            "APPLICANT_OFFERS"
+            "APPLICANT_OFFERS",
+            "MY_ASSESSMENT"
     );
 
     private final AccessRoleRepository accessRoleRepository;
@@ -188,7 +189,17 @@ public class DataSeeder implements ApplicationRunner {
             entry("APPLICANT_INTERVIEWS", "Interviews", "Careers",
                     FunctionalityCode.APPLICANT_INTERVIEWS_VIEW_INTERVIEWS, FunctionalityCode.APPLICANT_INTERVIEWS_CONFIRM_INTERVIEW),
             entry("APPLICANT_OFFERS", "Offers", "Careers",
-                    FunctionalityCode.APPLICANT_OFFERS_VIEW_OFFERS, FunctionalityCode.APPLICANT_OFFERS_RESPOND_OFFER)
+                    FunctionalityCode.APPLICANT_OFFERS_VIEW_OFFERS, FunctionalityCode.APPLICANT_OFFERS_RESPOND_OFFER),
+            // ── Assessment / AI interview (admin builder) ───────────────────────────────
+            entry("INTERVIEW_MANAGEMENT", "Assessments", "Recruitment",
+                    FunctionalityCode.INTERVIEW_MANAGEMENT_VIEW,
+                    FunctionalityCode.INTERVIEW_MANAGEMENT_MANAGE_QUESTIONS,
+                    FunctionalityCode.INTERVIEW_MANAGEMENT_MANAGE_QUESTION_SETS,
+                    FunctionalityCode.INTERVIEW_MANAGEMENT_MANAGE_TEMPLATES,
+                    FunctionalityCode.INTERVIEW_MANAGEMENT_ASSIGN_ASSESSMENT),
+            // ── Assessment (applicant) ──────────────────────────────────────────────────
+            entry("MY_ASSESSMENT", "Assessment", "Careers",
+                    FunctionalityCode.MY_ASSESSMENT_TAKE_ASSESSMENT, FunctionalityCode.MY_ASSESSMENT_VIEW_RESULTS)
     );
 
     @Override
