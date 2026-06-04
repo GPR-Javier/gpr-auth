@@ -6,6 +6,12 @@ server:
 spring:
   application:
     name: wos-auth
+  devtools:
+    restart:
+        # Auto-restart spawns extra classloaders/threads, so IntelliJ "Stop" doesn't reliably release
+        # port 8081 and rebuilds re-bind it ("Port 8081 was already in use"). Disable it so there's one
+        # JVM the IDE fully owns — Stop kills it and Rerun binds cleanly. Re-enable for hot reload.
+        enabled: false
   datasource:
     url: jdbc:postgresql://localhost:5432/workos
     username: postgres
@@ -14,7 +20,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
         format_sql: true
