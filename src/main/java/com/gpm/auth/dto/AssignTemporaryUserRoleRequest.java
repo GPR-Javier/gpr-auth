@@ -1,10 +1,9 @@
 package com.gpm.auth.dto;
 
 import jakarta.validation.constraints.NotNull;
-import lombok.Data;
-
 import java.time.LocalDate;
 import java.time.LocalTime;
+import lombok.Data;
 
 @Data
 public class AssignTemporaryUserRoleRequest {
@@ -16,4 +15,3 @@ public class AssignTemporaryUserRoleRequest {
     private LocalTime startTime;
     private LocalTime endTime;
 }
-

@@ -4,23 +4,22 @@ import com.gpm.auth.dto.AssignAccessRoleRequest;
 import com.gpm.auth.dto.CreateUserRoleRequest;
 import com.gpm.auth.dto.ToggleFunctionalityRequest;
 import com.gpm.auth.dto.UpdateUserRoleRequest;
+import com.gpm.auth.repository.AccessRoleRepository;
+import com.gpm.auth.repository.FunctionalityRepository;
+import com.gpm.auth.repository.UserRoleRepository;
+import com.gpm.common.dto.AccessRoleDTO;
+import com.gpm.common.dto.FunctionalityDTO;
+import com.gpm.common.dto.UserRoleDTO;
+import com.gpm.common.entity.AccessRole;
+import com.gpm.common.entity.Functionality;
+import com.gpm.common.entity.UserRole;
+import com.gpm.common.enums.RoleType;
 import com.gpm.common.exception.DuplicateResourceException;
 import com.gpm.common.exception.ResourceNotFoundException;
-import com.gpm.auth.repository.AccessRoleRepository;
-import com.gpm.auth.repository.UserRoleRepository;
-import com.gpm.auth.repository.FunctionalityRepository;
-import com.gpm.common.dto.AccessRoleDTO;
-import com.gpm.common.dto.UserRoleDTO;
-import com.gpm.common.dto.FunctionalityDTO;
-import com.gpm.common.entity.AccessRole;
-import com.gpm.common.entity.UserRole;
-import com.gpm.common.entity.Functionality;
-import com.gpm.common.enums.RoleType;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor

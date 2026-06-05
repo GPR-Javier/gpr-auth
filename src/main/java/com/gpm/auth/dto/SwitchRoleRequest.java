@@ -8,4 +8,3 @@ public class SwitchRoleRequest {
     @NotNull
     private Long userRoleId;
 }
-

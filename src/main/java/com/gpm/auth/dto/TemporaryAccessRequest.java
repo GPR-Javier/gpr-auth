@@ -1,10 +1,9 @@
 package com.gpm.auth.dto;
 
 import jakarta.validation.constraints.NotNull;
-import lombok.Data;
-
 import java.time.LocalDate;
 import java.time.LocalTime;
+import lombok.Data;
 
 /**
  * Sets or clears the temporary-access window on an existing role assignment.
@@ -20,4 +19,3 @@ public class TemporaryAccessRequest {
     private LocalTime startTime;
     private LocalTime endTime;
 }
-

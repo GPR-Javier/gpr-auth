@@ -5,16 +5,15 @@ import com.gpm.auth.dto.CreateUserRoleRequest;
 import com.gpm.auth.dto.ToggleFunctionalityRequest;
 import com.gpm.auth.dto.UpdateUserRoleRequest;
 import com.gpm.auth.service.UserRoleService;
-import com.gpm.common.dto.UserRoleDTO;
 import com.gpm.common.dto.FunctionalityDTO;
+import com.gpm.common.dto.UserRoleDTO;
 import jakarta.validation.Valid;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/user-roles")

@@ -1,17 +1,24 @@
 package com.gpm.auth.seeder;
 
 import com.gpm.auth.repository.AccessRoleRepository;
-import com.gpm.auth.repository.UserRoleRepository;
 import com.gpm.auth.repository.FunctionalityRepository;
 import com.gpm.auth.repository.UserRepository;
+import com.gpm.auth.repository.UserRoleRepository;
 import com.gpm.common.entity.AccessRole;
-import com.gpm.common.entity.UserRole;
 import com.gpm.common.entity.Functionality;
 import com.gpm.common.entity.User;
+import com.gpm.common.entity.UserRole;
 import com.gpm.common.enums.ControlType;
 import com.gpm.common.enums.FunctionalityCode;
 import com.gpm.common.enums.Role;
 import com.gpm.common.enums.RoleType;
+import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -20,14 +27,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.AbstractMap;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Component

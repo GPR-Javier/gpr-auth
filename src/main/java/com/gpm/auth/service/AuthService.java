@@ -4,10 +4,6 @@ import com.gpm.auth.dto.LoginResult;
 import com.gpm.auth.dto.RegisterRequest;
 import com.gpm.auth.dto.RoleSelectionRequest;
 import com.gpm.auth.dto.SwitchRoleRequest;
-import com.gpm.common.entity.RefreshToken;
-import com.gpm.common.exception.DuplicateResourceException;
-import com.gpm.common.exception.InvalidTokenException;
-import com.gpm.common.exception.ResourceNotFoundException;
 import com.gpm.auth.repository.RefreshTokenRepository;
 import com.gpm.auth.repository.UserRepository;
 import com.gpm.auth.repository.UserRoleRepository;
@@ -17,12 +13,19 @@ import com.gpm.common.dto.AuthResponse;
 import com.gpm.common.dto.RoleInfo;
 import com.gpm.common.dto.UserDTO;
 import com.gpm.common.dto.UserRoleSummaryDTO;
+import com.gpm.common.entity.Functionality;
+import com.gpm.common.entity.RefreshToken;
+import com.gpm.common.entity.User;
 import com.gpm.common.entity.UserRole;
 import com.gpm.common.entity.UserRoleAssignment;
-import com.gpm.common.entity.Functionality;
-import com.gpm.common.entity.User;
 import com.gpm.common.enums.Role;
 import com.gpm.common.enums.RoleType;
+import com.gpm.common.exception.DuplicateResourceException;
+import com.gpm.common.exception.InvalidTokenException;
+import com.gpm.common.exception.ResourceNotFoundException;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -30,10 +33,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
 
 @Slf4j
 @Service

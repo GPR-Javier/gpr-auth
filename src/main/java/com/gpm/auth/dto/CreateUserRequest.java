@@ -1,10 +1,9 @@
 package com.gpm.auth.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import lombok.Data;
-
 import java.util.ArrayList;
 import java.util.List;
+import lombok.Data;
 
 @Data
 public class CreateUserRequest {

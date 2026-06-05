@@ -4,6 +4,7 @@ import com.gpm.auth.security.CustomUserDetailsService;
 import com.gpm.auth.security.JwtAuthenticationFilter;
 import com.gpm.auth.security.RestAccessDeniedHandler;
 import com.gpm.auth.security.RestAuthenticationEntryPoint;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,8 +25,6 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-
-import java.util.List;
 
 @Configuration
 @EnableWebSecurity
