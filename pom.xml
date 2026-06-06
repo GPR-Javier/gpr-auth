@@ -65,12 +65,13 @@
             <scope>runtime</scope>
         </dependency>
 
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-devtools</artifactId>
-            <scope>runtime</scope>
-            <optional>true</optional>
-        </dependency>
+        <!--
+          spring-boot-devtools intentionally removed: its non-daemon LiveReload/file-watcher threads
+          kept the JVM alive after IntelliJ "Stop", orphaning the process and holding port 8081
+          ("Port 8081 was already in use" on the next run). Auto-restart was already disabled, so it
+          gave no benefit. Run via .run/WosAuthApplication.run.xml (Application) for clean Stop/Rerun.
+          Do NOT re-add unless you also want hot reload back.
+        -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
