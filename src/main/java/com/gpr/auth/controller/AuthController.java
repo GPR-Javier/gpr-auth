@@ -35,9 +35,10 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(
             @Valid @RequestBody RegisterRequest request,
+            HttpServletRequest httpRequest,
             HttpServletResponse response
     ) {
-        LoginResult result = authService.register(request);
+        LoginResult result = authService.register(request, resolveClientId(httpRequest));
         setTokenCookies(response, result.accessToken(), result.refreshToken());
         return ResponseEntity.status(HttpStatus.CREATED).body(result.response());
     }
@@ -45,9 +46,10 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(
             @Valid @RequestBody AuthRequest request,
+            HttpServletRequest httpRequest,
             HttpServletResponse response
     ) {
-        LoginResult result = authService.login(request);
+        LoginResult result = authService.login(request, resolveClientId(httpRequest));
         if (!result.response().isRequiresRoleSelection()) {
             setTokenCookies(response, result.accessToken(), result.refreshToken());
         }
@@ -57,9 +59,10 @@ public class AuthController {
     @PostMapping("/login/select-role")
     public ResponseEntity<AuthResponse> loginWithRole(
             @Valid @RequestBody RoleSelectionRequest request,
+            HttpServletRequest httpRequest,
             HttpServletResponse response
     ) {
-        LoginResult result = authService.loginWithRole(request);
+        LoginResult result = authService.loginWithRole(request, resolveClientId(httpRequest));
         setTokenCookies(response, result.accessToken(), result.refreshToken());
         return ResponseEntity.ok(result.response());
     }
@@ -133,6 +136,12 @@ public class AuthController {
         LoginResult result = authService.switchRole(userDetails.getUsername(), request);
         setAccessTokenCookie(response, result.accessToken());
         return ResponseEntity.ok(result.response());
+    }
+
+    /** The app a login/register request is for; sent via X-App-Id, defaults to "workos". */
+    private String resolveClientId(HttpServletRequest request) {
+        String appId = request.getHeader("X-App-Id");
+        return (appId == null || appId.isBlank()) ? "workos" : appId.trim();
     }
 
     // ── cookie helpers ────────────────────────────────────────────────

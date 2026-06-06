@@ -46,6 +46,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/register", "/login", "/login/select-role", "/refresh", "/logout").permitAll()
+                        // Internal cross-service user lookup (dev): permitted for now —
+                        // lock down with a service token / mTLS before production.
+                        .requestMatchers(HttpMethod.GET, "/users/summaries").permitAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex

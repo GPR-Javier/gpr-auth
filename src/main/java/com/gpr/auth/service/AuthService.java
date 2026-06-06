@@ -4,7 +4,12 @@ import com.gpr.auth.dto.LoginResult;
 import com.gpr.auth.dto.RegisterRequest;
 import com.gpr.auth.dto.RoleSelectionRequest;
 import com.gpr.auth.dto.SwitchRoleRequest;
+import com.gpr.auth.entity.App;
+import com.gpr.auth.entity.UserAppAccess;
+import com.gpr.auth.enums.RegistrationMode;
+import com.gpr.auth.repository.AppRepository;
 import com.gpr.auth.repository.RefreshTokenRepository;
+import com.gpr.auth.repository.UserAppAccessRepository;
 import com.gpr.auth.repository.UserRepository;
 import com.gpr.auth.repository.UserRoleRepository;
 import com.gpr.auth.security.JwtService;
@@ -20,7 +25,6 @@ import com.gpr.common.entity.UserRole;
 import com.gpr.common.entity.UserRoleAssignment;
 import com.gpr.common.enums.Role;
 import com.gpr.common.enums.RoleType;
-import com.gpr.common.exception.DuplicateResourceException;
 import com.gpr.common.exception.InvalidTokenException;
 import com.gpr.common.exception.ResourceNotFoundException;
 import java.time.LocalDateTime;
@@ -28,11 +32,13 @@ import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 @Slf4j
 @Service
@@ -46,9 +52,11 @@ public class AuthService {
     private final JwtService jwtService;
     private final UserRoleAccessResolver userRoleAccessResolver;
     private final PasswordEncoder passwordEncoder;
+    private final AppRepository appRepository;
+    private final UserAppAccessRepository userAppAccessRepository;
 
     @Transactional
-    public LoginResult login(AuthRequest request) {
+    public LoginResult login(AuthRequest request, String clientId) {
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
         );
@@ -66,6 +74,9 @@ public class AuthService {
             log.error("Post-authentication failure for {}: [{}] {}", request.getEmail(), e.getClass().getSimpleName(), e.getMessage(), e);
             throw e;
         }
+
+        // IdP gate: the user must be allowed to use this app (auto-provisioned for self-signup apps).
+        enforceAppAccess(user, resolveApp(clientId));
 
         if (activeRoles.size() > 1) {
             LocalDateTime now = LocalDateTime.now();
@@ -85,17 +96,19 @@ public class AuthService {
             return new LoginResult(response, null, null);
         }
 
-        return issueTokens(user, activeRoles.isEmpty() ? null : activeRoles.get(0), activeRoles);
+        return issueTokens(user, activeRoles.isEmpty() ? null : activeRoles.get(0), activeRoles, clientId);
     }
 
     @Transactional
-    public LoginResult loginWithRole(RoleSelectionRequest request) {
+    public LoginResult loginWithRole(RoleSelectionRequest request, String clientId) {
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
         );
 
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new IllegalStateException("User disappeared after authentication"));
+
+        enforceAppAccess(user, resolveApp(clientId));
 
         List<UserRole> activeRoles = userRoleAccessResolver.resolveActiveUserRoles(user);
 
@@ -104,7 +117,7 @@ public class AuthService {
                 .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("User role not active for this user"));
 
-        return issueTokens(user, selectedRole, activeRoles);
+        return issueTokens(user, selectedRole, activeRoles, clientId);
     }
 
     @Transactional
@@ -149,9 +162,17 @@ public class AuthService {
     }
 
     @Transactional
-    public LoginResult register(RegisterRequest req) {
-        if (userRepository.findByEmail(req.getEmail().toLowerCase().trim()).isPresent()) {
-            throw new DuplicateResourceException("An account with this email already exists");
+    public LoginResult register(RegisterRequest req, String clientId) {
+        String email = req.getEmail().toLowerCase().trim();
+        App app = resolveApp(clientId);
+
+        // Register-or-link: an existing identity is linked to this app, never duplicated.
+        User existing = userRepository.findByEmail(email).orElse(null);
+        if (existing != null) {
+            grantAccessIfMissing(existing, app);
+            List<UserRole> activeRoles = userRoleAccessResolver.resolveActiveUserRoles(existing);
+            log.info("Register-or-link: linked existing identity {} to app '{}'", email, clientId);
+            return issueTokens(existing, activeRoles.isEmpty() ? null : activeRoles.get(0), activeRoles, clientId);
         }
 
         UserRole applicantRole = userRoleRepository.findByName("Applicant")
@@ -160,7 +181,7 @@ public class AuthService {
         User user = User.builder()
                 .firstName(req.getFirstName().trim())
                 .lastName(req.getLastName().trim())
-                .email(req.getEmail().toLowerCase().trim())
+                .email(email)
                 .password(passwordEncoder.encode(req.getPassword()))
                 .employeeId("APP-" + System.currentTimeMillis())
                 .role(Role.APPLICANT)
@@ -168,9 +189,10 @@ public class AuthService {
                 .build();
         user.addRoleAssignment(applicantRole);
         userRepository.save(user);
+        grantAccessIfMissing(user, app);
 
-        log.info("Registered new applicant: {}", user.getEmail());
-        return issueTokens(user, applicantRole, List.of(applicantRole));
+        log.info("Registered new applicant {} and granted '{}' access", user.getEmail(), clientId);
+        return issueTokens(user, applicantRole, List.of(applicantRole), clientId);
     }
 
     @Transactional
@@ -243,12 +265,12 @@ public class AuthService {
 
     // â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    private LoginResult issueTokens(User user, UserRole selectedRole, List<UserRole> activeRoles) {
+    private LoginResult issueTokens(User user, UserRole selectedRole, List<UserRole> activeRoles, String clientId) {
         refreshTokenRepository.revokeAllByUser(user);
 
         String accessToken = selectedRole != null
-                ? jwtService.generateAccessToken(user, selectedRole)
-                : jwtService.generateAccessToken(user, activeRoles);
+                ? jwtService.generateAccessToken(user, selectedRole, clientId)
+                : jwtService.generateAccessToken(user, activeRoles, clientId);
         String refreshToken = jwtService.generateRefreshToken(user);
 
         refreshTokenRepository.save(RefreshToken.builder()
@@ -258,6 +280,47 @@ public class AuthService {
                 .build());
 
         return new LoginResult(buildAuthResponse(user, selectedRole, activeRoles), accessToken, refreshToken);
+    }
+
+    // ── app access (IdP) ─────────────────────────────────────────────
+
+    /** Resolves the registered app for a clientId, or 403 if unknown/inactive. */
+    private App resolveApp(String clientId) {
+        return appRepository.findByClientId(clientId)
+                .filter(App::isActive)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.FORBIDDEN, "Unknown or inactive app: " + clientId));
+    }
+
+    /**
+     * Ensures the user may use this app. Self-signup apps auto-provision access on first login;
+     * invite-only apps reject when the (user, app) grant is missing.
+     */
+    private void enforceAppAccess(User user, App app) {
+        if (userAppAccessRepository.existsByUserAndApp(user, app)) {
+            return;
+        }
+        if (app.getRegistrationMode() == RegistrationMode.SELF_SIGNUP) {
+            grantAccess(user, app);
+            log.info("Auto-granted '{}' access to {} on login", app.getClientId(), user.getEmail());
+        } else {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN, "No access to app '" + app.getClientId() + "'");
+        }
+    }
+
+    private void grantAccessIfMissing(User user, App app) {
+        if (!userAppAccessRepository.existsByUserAndApp(user, app)) {
+            grantAccess(user, app);
+        }
+    }
+
+    private void grantAccess(User user, App app) {
+        userAppAccessRepository.save(UserAppAccess.builder()
+                .user(user)
+                .app(app)
+                .active(true)
+                .build());
     }
 
     private AuthResponse buildAuthResponse(User user, UserRole selectedRole, List<UserRole> activeRoles) {

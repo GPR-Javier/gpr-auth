@@ -27,34 +27,48 @@ public class JwtService {
     @Value("${jwt.refresh-token-expiration}")
     private long refreshTokenExpiry;
 
+    /** Default audience while WorkOS is the only app; overridden by the caller's clientId. */
+    private static final String DEFAULT_AUD = "workos";
+
     public String generateAccessToken(User user) {
-        return buildAccessToken(user, user.getActiveUserRoles(java.time.LocalDateTime.now()));
+        return buildAccessToken(user, user.getActiveUserRoles(java.time.LocalDateTime.now()), DEFAULT_AUD);
     }
 
     public String generateAccessToken(User user, List<UserRole> roles) {
-        return buildAccessToken(user, roles);
+        return buildAccessToken(user, roles, DEFAULT_AUD);
+    }
+
+    /** Generates an access token scoped to a given app (the {@code aud} claim). */
+    public String generateAccessToken(User user, List<UserRole> roles, String aud) {
+        return buildAccessToken(user, roles, aud);
     }
 
     /** Generates an access token scoped to a single selected employee role. */
     public String generateAccessToken(User user, UserRole selectedRole) {
-        return buildAccessToken(user, List.of(selectedRole));
+        return buildAccessToken(user, List.of(selectedRole), DEFAULT_AUD);
     }
 
-    private String buildAccessToken(User user, List<UserRole> roles) {
+    public String generateAccessToken(User user, UserRole selectedRole, String aud) {
+        return buildAccessToken(user, List.of(selectedRole), aud);
+    }
+
+    private String buildAccessToken(User user, List<UserRole> roles, String aud) {
         List<String> roleNames = roles.stream().map(UserRole::getName).toList();
         boolean isAdmin = roles.stream().anyMatch(UserRole::isAdmin);
         Long userRoleId = roles.isEmpty() ? null : roles.get(0).getId();
 
-        return Jwts.builder()
+        io.jsonwebtoken.JwtBuilder builder = Jwts.builder()
                 .subject(user.getId().toString())
                 .claim("email", user.getEmail())
                 .claim("role", isAdmin ? "ADMIN" : "EMPLOYEE")
                 .claim("userRoleNames", roleNames)
                 .claim("userRoleId", userRoleId)
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + accessTokenExpiry))
-                .signWith(signingKey())
-                .compact();
+                .expiration(new Date(System.currentTimeMillis() + accessTokenExpiry));
+        if (aud != null && !aud.isBlank()) {
+            builder.audience().add(aud).and();
+        }
+        return builder.signWith(signingKey()).compact();
     }
 
     public String generateRefreshToken(User user) {
