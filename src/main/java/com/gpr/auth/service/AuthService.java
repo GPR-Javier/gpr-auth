@@ -78,24 +78,9 @@ public class AuthService {
         // IdP gate: the user must be allowed to use this app (auto-provisioned for self-signup apps).
         enforceAppAccess(user, resolveApp(clientId));
 
-        if (activeRoles.size() > 1) {
-            LocalDateTime now = LocalDateTime.now();
-            List<RoleInfo> availableRoles = activeRoles.stream()
-                    .map(er -> RoleInfo.builder()
-                            .id(er.getId())
-                            .name(er.getName())
-                            .description(er.getDescription())
-                            .temporary(isTemporaryRole(user, er.getId(), now))
-                            .onboarded(isRoleOnboarded(user, er.getId()))
-                            .build())
-                    .toList();
-            AuthResponse response = AuthResponse.builder()
-                    .requiresRoleSelection(true)
-                    .availableRoles(availableRoles)
-                    .build();
-            return new LoginResult(response, null, null);
-        }
-
+        // Phase 3 (Option A): role selection moves to wos-hr (/auth/session). Login always establishes
+        // identity here (sets the cookie); the frontend then calls wos-hr to resolve roles, handle
+        // multi-role selection, and mint the role-bearing token.
         return issueTokens(user, activeRoles.isEmpty() ? null : activeRoles.get(0), activeRoles, clientId);
     }
 
