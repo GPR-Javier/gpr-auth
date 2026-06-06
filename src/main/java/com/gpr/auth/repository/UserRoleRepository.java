@@ -1,0 +1,12 @@
+package com.gpr.auth.repository;
+
+import com.gpr.common.entity.UserRole;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface UserRoleRepository extends JpaRepository<UserRole, Long> {
+    Optional<UserRole> findByName(String name);
+    boolean existsByName(String name);
+    List<UserRole> findAllByActiveTrue();
+}

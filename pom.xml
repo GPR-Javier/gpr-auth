@@ -10,7 +10,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.gpm</groupId>
+    <groupId>com.gpr</groupId>
     <artifactId>wos-auth</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>wos-auth</name>
@@ -24,7 +24,7 @@
     <dependencies>
         <!-- Shared entities, DTOs, enums, constants -->
         <dependency>
-            <groupId>com.gpm</groupId>
+            <groupId>com.gpr</groupId>
             <artifactId>wos-common</artifactId>
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
