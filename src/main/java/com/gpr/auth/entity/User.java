@@ -5,13 +5,12 @@ import java.time.LocalDateTime;
 import lombok.*;
 
 /**
- * The central identity record. Owned by gpr-auth and stored in the {@code gpr_identity} database —
- * the single source of truth for who a person is across every app. Holds IDENTITY ONLY: credentials
- * and name. App-specific data (WorkOS employeeId/role/positions, pet-vet profiles, etc.) lives in
- * each app's own database, keyed by this {@code id} with NO cross-DB foreign key.
+ * Central LOGIN CREDENTIALS. Owned by gpr-auth ({@code gpr_identity} DB) — the shared sign-in
+ * identity across every app. Holds ONLY what authenticates a person: the identifiers they can log
+ * in with (email / username / phone) and the password. Personal details live in {@link UserInfo}
+ * (1:1); app-specific data (employeeId, roles, profile overrides) lives per-app keyed by {@code id}.
  *
- * <p>{@code employeeId} is retained here as a stable human-readable handle exposed by the user
- * directory ({@code /users/summaries}); it is generated at identity-creation time.
+ * <p>Editing these fields changes how the user signs in to ALL apps — the UI warns accordingly.
  */
 @Entity
 @Table(name = "users")
@@ -26,17 +25,17 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "employee_id", unique = true, nullable = false)
-    private String employeeId;
-
-    @Column(name = "first_name", nullable = false)
-    private String firstName;
-
-    @Column(name = "last_name", nullable = false)
-    private String lastName;
-
+    /** Primary email — a login identifier. */
     @Column(nullable = false, unique = true)
     private String email;
+
+    /** Global handle — a login identifier and the IdP's stable human-readable id. */
+    @Column(nullable = false, unique = true)
+    private String username;
+
+    /** Phone — an optional login identifier (recovery / future 2FA). */
+    @Column(unique = true)
+    private String phone;
 
     /** Always BCrypt hashed — never stored or returned as plain text. */
     @Column(nullable = false)

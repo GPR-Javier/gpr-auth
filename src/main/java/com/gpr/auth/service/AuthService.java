@@ -1,21 +1,27 @@
 package com.gpr.auth.service;
 
+import com.gpr.auth.dto.IdentityCreateRequest;
 import com.gpr.auth.dto.LoginResult;
 import com.gpr.auth.dto.RegisterRequest;
+import com.gpr.auth.dto.UpdateCredentialsRequest;
+import com.gpr.auth.dto.UpdateInfoRequest;
 import com.gpr.auth.entity.App;
 import com.gpr.auth.entity.RefreshToken;
 import com.gpr.auth.entity.User;
 import com.gpr.auth.entity.UserAppAccess;
+import com.gpr.auth.entity.UserInfo;
 import com.gpr.auth.enums.RegistrationMode;
 import com.gpr.auth.repository.AppRepository;
 import com.gpr.auth.repository.RefreshTokenRepository;
 import com.gpr.auth.repository.UserAppAccessRepository;
+import com.gpr.auth.repository.UserInfoRepository;
 import com.gpr.auth.repository.UserRepository;
 import com.gpr.auth.security.JwtService;
 import com.gpr.common.dto.AuthRequest;
 import com.gpr.common.dto.AuthResponse;
 import com.gpr.common.dto.UserSummaryDto;
 import com.gpr.common.exception.InvalidTokenException;
+import com.gpr.common.exception.ResourceNotFoundException;
 import java.time.LocalDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -29,9 +35,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * Identity-only authentication. gpr-auth proves who the caller is, gates app access, and mints a
- * bare IDENTITY token (sub + email + aud — no roles). Per-app roles and the role-bearing access
- * token are resolved by WorkOS (wos-hr {@code /auth/session}) from this identity token.
+ * Identity-only authentication over split credentials ({@link User}) + canonical personal info
+ * ({@link UserInfo}). Proves who the caller is, gates app access, and mints a bare IDENTITY token;
+ * per-app roles + the role-bearing token are resolved by WorkOS (wos-hr {@code /auth/session}).
  */
 @Slf4j
 @Service
@@ -42,26 +48,26 @@ public class AuthService {
 
     private final AuthenticationManager authenticationManager;
     private final UserRepository userRepository;
+    private final UserInfoRepository userInfoRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
     private final AppRepository appRepository;
     private final UserAppAccessRepository userAppAccessRepository;
+    private final UserDirectoryService userDirectoryService;
 
     @Transactional
     public LoginResult login(AuthRequest request, String clientId) {
+        // The submitted identifier (carried in the email field) may be email, username, or phone.
+        String identifier = request.getEmail();
         authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
+                new UsernamePasswordAuthenticationToken(identifier, request.getPassword())
         );
 
-        User user = userRepository.findByEmail(request.getEmail())
+        User user = userRepository.findByEmailOrUsernameOrPhone(identifier, identifier, identifier)
                 .orElseThrow(() -> new IllegalStateException("User disappeared after authentication"));
 
-        // IdP gate: the user must be allowed to use this app (auto-provisioned for self-signup apps).
         enforceAppAccess(user, resolveApp(clientId));
-
-        // Identity established here (sets the cookie). The frontend then calls WorkOS /auth/session
-        // to resolve roles and mint the role-bearing token.
         return issueTokens(user, clientId);
     }
 
@@ -79,14 +85,20 @@ public class AuthService {
         }
 
         User user = User.builder()
-                .firstName(req.getFirstName().trim())
-                .lastName(req.getLastName().trim())
                 .email(email)
+                .username(generateUniqueUsername(req.getFirstName(), req.getLastName(), req.getUsername()))
+                .phone(blankToNull(req.getPhone()))
                 .password(passwordEncoder.encode(req.getPassword()))
-                .employeeId(generateUniqueIdentityHandle(req.getFirstName(), req.getLastName()))
                 .active(true)
                 .build();
         userRepository.save(user);
+        userInfoRepository.save(UserInfo.builder()
+                .user(user)
+                .firstName(req.getFirstName().trim())
+                .lastName(req.getLastName().trim())
+                .birthday(req.getBirthday())
+                .address(blankToNull(req.getAddress()))
+                .build());
         grantAccessIfMissing(user, app);
 
         log.info("Registered new identity {} and granted '{}' access", user.getEmail(), clientId);
@@ -95,29 +107,41 @@ public class AuthService {
 
     /**
      * Internal cross-service identity provisioning (create-or-find). WorkOS "add employee" calls
-     * this to obtain a userId before writing its local employee profile. Idempotent on email.
+     * this to obtain a userId + canonical info before writing its local employee profile. Generates
+     * the username/email when the caller doesn't supply them. Idempotent on email.
      */
     @Transactional
-    public UserSummaryDto createIdentity(String firstName, String lastName, String rawPassword, String clientId) {
+    public UserSummaryDto createIdentity(IdentityCreateRequest req, String clientId) {
         App app = resolveApp(clientId);
-        String handle = generateUniqueIdentityHandle(firstName, lastName);
-        String email = handle + COMPANY_EMAIL_DOMAIN;
+        String username = generateUniqueUsername(req.getFirstName(), req.getLastName(), req.getUsername());
+        String email = req.getEmail() != null && !req.getEmail().isBlank()
+                ? req.getEmail().toLowerCase().trim()
+                : username + COMPANY_EMAIL_DOMAIN;
 
         User user = userRepository.findByEmail(email).orElse(null);
+        UserInfo info;
         if (user == null) {
             user = User.builder()
-                    .firstName(firstName.trim())
-                    .lastName(lastName.trim())
                     .email(email)
-                    .password(passwordEncoder.encode(rawPassword))
-                    .employeeId(handle)
+                    .username(username)
+                    .phone(blankToNull(req.getPhone()))
+                    .password(passwordEncoder.encode(req.getPassword()))
                     .active(true)
                     .build();
             userRepository.save(user);
+            info = userInfoRepository.save(UserInfo.builder()
+                    .user(user)
+                    .firstName(req.getFirstName().trim())
+                    .lastName(req.getLastName().trim())
+                    .birthday(req.getBirthday())
+                    .address(blankToNull(req.getAddress()))
+                    .build());
             log.info("createIdentity: provisioned identity {} ({})", email, user.getId());
+        } else {
+            info = userInfoRepository.findByUserId(user.getId()).orElse(null);
         }
         grantAccessIfMissing(user, app);
-        return toSummary(user);
+        return userDirectoryService.toSummary(user, info);
     }
 
     @Transactional
@@ -129,8 +153,7 @@ public class AuthService {
         if (stored.isExpired()) throw new InvalidTokenException("Refresh token has expired");
         if (!jwtService.validateToken(rawRefreshToken)) throw new InvalidTokenException("Refresh token is invalid");
 
-        User user = stored.getUser();
-        String newAccessToken = jwtService.generateAccessToken(user);
+        String newAccessToken = jwtService.generateAccessToken(stored.getUser());
         return new LoginResult(identityResponse(), newAccessToken, rawRefreshToken);
     }
 
@@ -141,6 +164,67 @@ public class AuthService {
                     rt.setRevoked(true);
                     refreshTokenRepository.save(rt);
                 });
+    }
+
+    // ── account self-service (shared across all apps — UI warns) ──────
+
+    @Transactional(readOnly = true)
+    public UserSummaryDto getAccount(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+        return userDirectoryService.toSummary(user, userInfoRepository.findByUserId(userId).orElse(null));
+    }
+
+    /** Updates login credentials (email / username / phone / password). Affects sign-in to all apps. */
+    @Transactional
+    public UserSummaryDto updateCredentials(Long userId, UpdateCredentialsRequest req) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+
+        if (notBlank(req.getEmail())) {
+            String email = req.getEmail().toLowerCase().trim();
+            if (!email.equalsIgnoreCase(user.getEmail()) && userRepository.existsByEmail(email)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already in use");
+            }
+            user.setEmail(email);
+        }
+        if (notBlank(req.getUsername())) {
+            String username = req.getUsername().trim();
+            if (!username.equalsIgnoreCase(user.getUsername()) && userRepository.existsByUsername(username)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Username already in use");
+            }
+            user.setUsername(username);
+        }
+        if (req.getPhone() != null) {
+            String phone = blankToNull(req.getPhone());
+            if (phone != null && !phone.equals(user.getPhone()) && userRepository.existsByPhone(phone)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Phone already in use");
+            }
+            user.setPhone(phone);
+        }
+        if (notBlank(req.getNewPassword())) {
+            user.setPassword(passwordEncoder.encode(req.getNewPassword()));
+        }
+        userRepository.save(user);
+        return userDirectoryService.toSummary(user, userInfoRepository.findByUserId(userId).orElse(null));
+    }
+
+    /** Updates canonical personal info. Affects apps the user hasn't customized / joins later. */
+    @Transactional
+    public UserSummaryDto updateInfo(Long userId, UpdateInfoRequest req) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+        UserInfo info = userInfoRepository.findByUserId(userId)
+                .orElseGet(() -> UserInfo.builder().user(user).build());
+
+        if (req.getFirstName() != null) info.setFirstName(blankToNull(req.getFirstName()));
+        if (req.getLastName() != null) info.setLastName(blankToNull(req.getLastName()));
+        if (req.getMiddleName() != null) info.setMiddleName(blankToNull(req.getMiddleName()));
+        if (req.getBirthday() != null) info.setBirthday(req.getBirthday());
+        if (req.getAddress() != null) info.setAddress(blankToNull(req.getAddress()));
+        if (req.getGender() != null) info.setGender(blankToNull(req.getGender()));
+        userInfoRepository.save(info);
+        return userDirectoryService.toSummary(user, info);
     }
 
     // ── helpers ──────────────────────────────────────────────────────
@@ -160,10 +244,6 @@ public class AuthService {
         return new LoginResult(identityResponse(), accessToken, refreshToken);
     }
 
-    /**
-     * Minimal identity response — login succeeded and the cookie is set. Role label, authorities,
-     * and onboarding state are filled in by WorkOS /auth/session, which the frontend calls next.
-     */
     private AuthResponse identityResponse() {
         return AuthResponse.builder()
                 .role("")
@@ -211,21 +291,25 @@ public class AuthService {
                 .build());
     }
 
-    // ── identity handle generation ───────────────────────────────────
+    // ── username generation ──────────────────────────────────────────
 
-    /** "Gene Paul Mar" + "Javier" => "gpmjavier", suffixed with a counter until unique. */
-    private String generateUniqueIdentityHandle(String firstName, String lastName) {
-        String base = buildBaseIdentityHandle(firstName, lastName);
+    /** Uses the requested username if free, else "gpmjavier"-style handle suffixed until unique. */
+    private String generateUniqueUsername(String firstName, String lastName, String requested) {
+        if (notBlank(requested) && !userRepository.existsByUsername(requested.trim())) {
+            return requested.trim();
+        }
+        String base = buildBaseHandle(firstName, lastName);
         String candidate = base;
         int counter = 1;
-        while (identityHandleExists(candidate)) {
+        while (userRepository.existsByUsername(candidate)
+                || userRepository.existsByEmail(candidate + COMPANY_EMAIL_DOMAIN)) {
             candidate = base + counter;
             counter++;
         }
         return candidate;
     }
 
-    private String buildBaseIdentityHandle(String firstName, String lastName) {
+    private String buildBaseHandle(String firstName, String lastName) {
         String initials = java.util.Arrays.stream(firstName.trim().split("\\s+"))
                 .filter(word -> !word.isBlank())
                 .map(word -> String.valueOf(word.charAt(0)))
@@ -235,18 +319,11 @@ public class AuthService {
         return initials + normalizedLastName;
     }
 
-    private boolean identityHandleExists(String handle) {
-        return userRepository.existsByEmployeeId(handle)
-                || userRepository.existsByEmail(handle + COMPANY_EMAIL_DOMAIN);
+    private static boolean notBlank(String s) {
+        return s != null && !s.isBlank();
     }
 
-    private UserSummaryDto toSummary(User user) {
-        return UserSummaryDto.builder()
-                .id(user.getId())
-                .employeeId(user.getEmployeeId())
-                .firstName(user.getFirstName())
-                .lastName(user.getLastName())
-                .email(user.getEmail())
-                .build();
+    private static String blankToNull(String s) {
+        return notBlank(s) ? s.trim() : null;
     }
 }

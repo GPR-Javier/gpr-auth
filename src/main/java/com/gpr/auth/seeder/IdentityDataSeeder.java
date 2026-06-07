@@ -3,9 +3,11 @@ package com.gpr.auth.seeder;
 import com.gpr.auth.entity.App;
 import com.gpr.auth.entity.User;
 import com.gpr.auth.entity.UserAppAccess;
+import com.gpr.auth.entity.UserInfo;
 import com.gpr.auth.enums.RegistrationMode;
 import com.gpr.auth.repository.AppRepository;
 import com.gpr.auth.repository.UserAppAccessRepository;
+import com.gpr.auth.repository.UserInfoRepository;
 import com.gpr.auth.repository.UserRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +39,7 @@ public class IdentityDataSeeder implements ApplicationRunner {
     private final AppRepository appRepository;
     private final UserAppAccessRepository userAppAccessRepository;
     private final UserRepository userRepository;
+    private final UserInfoRepository userInfoRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Override
@@ -52,14 +55,17 @@ public class IdentityDataSeeder implements ApplicationRunner {
             return;
         }
         User admin = User.builder()
-                .firstName("Admin")
-                .lastName("System")
                 .email(ADMIN_USER_EMAIL)
+                .username("admin")
                 .password(passwordEncoder.encode("Admin@1234"))
-                .employeeId("ADMIN-001")
                 .active(true)
                 .build();
         userRepository.save(admin);
+        userInfoRepository.save(UserInfo.builder()
+                .user(admin)
+                .firstName("Admin")
+                .lastName("System")
+                .build());
         log.info("IdentitySeeder: created admin identity '{}' (id={})", ADMIN_USER_EMAIL, admin.getId());
     }
 

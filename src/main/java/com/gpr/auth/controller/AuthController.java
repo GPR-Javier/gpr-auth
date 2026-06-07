@@ -2,9 +2,13 @@ package com.gpr.auth.controller;
 
 import com.gpr.auth.dto.LoginResult;
 import com.gpr.auth.dto.RegisterRequest;
+import com.gpr.auth.dto.UpdateCredentialsRequest;
+import com.gpr.auth.dto.UpdateInfoRequest;
+import com.gpr.auth.security.JwtService;
 import com.gpr.auth.service.AuthService;
 import com.gpr.common.dto.AuthRequest;
 import com.gpr.common.dto.AuthResponse;
+import com.gpr.common.dto.UserSummaryDto;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -28,6 +32,7 @@ public class AuthController {
     private static final int REFRESH_TOKEN_MAX_AGE = 7 * 24 * 3600; // 7 days
 
     private final AuthService authService;
+    private final JwtService jwtService;
 
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(
@@ -70,6 +75,41 @@ public class AuthController {
         }
         clearTokenCookies(response);
         return ResponseEntity.ok().build();
+    }
+
+    // ── account self-service (credentials + canonical info — shared across all apps) ──
+
+    @GetMapping("/me")
+    public ResponseEntity<UserSummaryDto> me(HttpServletRequest request) {
+        return ResponseEntity.ok(authService.getAccount(currentUserId(request)));
+    }
+
+    @PutMapping("/me/credentials")
+    public ResponseEntity<UserSummaryDto> updateCredentials(
+            @Valid @RequestBody UpdateCredentialsRequest body, HttpServletRequest request) {
+        return ResponseEntity.ok(authService.updateCredentials(currentUserId(request), body));
+    }
+
+    @PutMapping("/me/info")
+    public ResponseEntity<UserSummaryDto> updateInfo(
+            @Valid @RequestBody UpdateInfoRequest body, HttpServletRequest request) {
+        return ResponseEntity.ok(authService.updateInfo(currentUserId(request), body));
+    }
+
+    /** Resolves the authenticated identity id (sub) from the access-token cookie/bearer. */
+    private Long currentUserId(HttpServletRequest request) {
+        String token = extractCookie(request, "access_token");
+        if (token == null) {
+            String auth = request.getHeader("Authorization");
+            if (auth != null && auth.startsWith("Bearer ")) {
+                token = auth.substring(7).trim();
+            }
+        }
+        if (token == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.UNAUTHORIZED, "Missing access token");
+        }
+        return jwtService.extractUserId(token);
     }
 
     /** The app a login/register request is for; sent via X-App-Id, defaults to "workos". */

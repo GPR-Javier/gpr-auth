@@ -44,8 +44,6 @@ public class UserDirectoryController {
     ) {
         String appId = httpRequest.getHeader("X-App-Id");
         String clientId = (appId == null || appId.isBlank()) ? "workos" : appId.trim();
-        UserSummaryDto created = authService.createIdentity(
-                request.getFirstName(), request.getLastName(), request.getPassword(), clientId);
-        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+        return ResponseEntity.status(HttpStatus.CREATED).body(authService.createIdentity(request, clientId));
     }
 }
