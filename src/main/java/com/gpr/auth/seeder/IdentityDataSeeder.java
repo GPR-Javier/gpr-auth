@@ -63,7 +63,10 @@ public class IdentityDataSeeder implements ApplicationRunner {
     }
 
     private User seedAdminIdentity() {
-        User existing = userRepository.findByEmail(ADMIN_USER_EMAIL).orElse(null);
+        // Idempotent across an email change too — match either identifier so we never collide on username.
+        User existing = userRepository.findByEmail(ADMIN_USER_EMAIL)
+                .or(() -> userRepository.findByUsername("admin"))
+                .orElse(null);
         if (existing != null) {
             return existing;
         }
@@ -84,7 +87,9 @@ public class IdentityDataSeeder implements ApplicationRunner {
     }
 
     private User seedSuperAdmin() {
-        User existing = userRepository.findByEmail(SUPER_ADMIN_EMAIL).orElse(null);
+        User existing = userRepository.findByEmail(SUPER_ADMIN_EMAIL)
+                .or(() -> userRepository.findByUsername("superadmin"))
+                .orElse(null);
         if (existing != null) {
             return existing;
         }
