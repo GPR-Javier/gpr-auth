@@ -1,9 +1,13 @@
 package com.gpr.auth.controller;
 
+import com.gpr.auth.dto.CompanyInfo;
+import com.gpr.auth.dto.CompanyLoginResponse;
 import com.gpr.auth.dto.LoginResult;
 import com.gpr.auth.dto.RegisterRequest;
+import com.gpr.auth.dto.SelectCompanyRequest;
 import com.gpr.auth.dto.UpdateCredentialsRequest;
 import com.gpr.auth.dto.UpdateInfoRequest;
+import java.util.List;
 import com.gpr.auth.security.JwtService;
 import com.gpr.auth.service.AuthService;
 import com.gpr.common.dto.AuthRequest;
@@ -46,14 +50,35 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<AuthResponse> login(
+    public ResponseEntity<CompanyLoginResponse> login(
             @Valid @RequestBody AuthRequest request,
             HttpServletRequest httpRequest,
             HttpServletResponse response
     ) {
-        LoginResult result = authService.login(request, resolveClientId(httpRequest));
-        setTokenCookies(response, result.accessToken(), result.refreshToken());
-        return ResponseEntity.ok(result.response());
+        AuthService.LoginOutcome outcome = authService.login(request, resolveClientId(httpRequest));
+        setTokenCookies(response, outcome.result().accessToken(), outcome.result().refreshToken());
+        return ResponseEntity.ok(new CompanyLoginResponse(
+                outcome.requiresCompanySelection(), outcome.companies(), outcome.companyId()));
+    }
+
+    /** Companies the authenticated user may act within (after login). */
+    @GetMapping("/companies")
+    public ResponseEntity<List<CompanyInfo>> companies(HttpServletRequest request) {
+        return ResponseEntity.ok(authService.companiesForUser(currentUserId(request)));
+    }
+
+    /** Choose (or switch to) the active company; re-mints the token with the new tenant. */
+    @PostMapping({"/select-company", "/switch-company"})
+    public ResponseEntity<CompanyLoginResponse> selectCompany(
+            @Valid @RequestBody SelectCompanyRequest body,
+            HttpServletRequest httpRequest,
+            HttpServletResponse response
+    ) {
+        AuthService.LoginOutcome outcome = authService.selectCompany(
+                currentUserId(httpRequest), body.getCompanyId(), resolveClientId(httpRequest));
+        setAccessTokenCookie(response, outcome.result().accessToken());
+        return ResponseEntity.ok(new CompanyLoginResponse(
+                outcome.requiresCompanySelection(), outcome.companies(), outcome.companyId()));
     }
 
     @PostMapping("/refresh")

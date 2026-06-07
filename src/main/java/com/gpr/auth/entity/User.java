@@ -44,6 +44,11 @@ public class User {
     @Column(name = "is_active", nullable = false)
     private boolean active;
 
+    /** Platform super admin — transcends tenants, manages companies/apps, exempt from app authz. */
+    @Column(name = "is_super_admin", nullable = false)
+    @Builder.Default
+    private boolean superAdmin = false;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

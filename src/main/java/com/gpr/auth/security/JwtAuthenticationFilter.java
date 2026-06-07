@@ -46,10 +46,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 String email = claims.get("email", String.class);
                 UserDetails userDetails = userDetailsService.loadUserByUsername(email);
 
-                // Identity-only: no role authorities. gpr-auth's endpoints gate on authentication,
-                // not authorization; per-app roles live in WorkOS.
+                // Identity-only, except the platform super-admin marker, which gates company admin.
+                java.util.List<org.springframework.security.core.GrantedAuthority> authorities =
+                        new java.util.ArrayList<>(userDetails.getAuthorities());
+                if (Boolean.TRUE.equals(claims.get("super_admin", Boolean.class))) {
+                    authorities.add(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_SUPER_ADMIN"));
+                }
+
                 UsernamePasswordAuthenticationToken authToken =
-                        new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+                        new UsernamePasswordAuthenticationToken(userDetails, null, authorities);
                 authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authToken);
             } catch (Exception e) {

@@ -1,19 +1,24 @@
 package com.gpr.auth.service;
 
+import com.gpr.auth.dto.CompanyInfo;
 import com.gpr.auth.dto.IdentityCreateRequest;
 import com.gpr.auth.dto.LoginResult;
 import com.gpr.auth.dto.RegisterRequest;
 import com.gpr.auth.dto.UpdateCredentialsRequest;
 import com.gpr.auth.dto.UpdateInfoRequest;
 import com.gpr.auth.entity.App;
+import com.gpr.auth.entity.Company;
 import com.gpr.auth.entity.RefreshToken;
 import com.gpr.auth.entity.User;
 import com.gpr.auth.entity.UserAppAccess;
+import com.gpr.auth.entity.UserCompany;
 import com.gpr.auth.entity.UserInfo;
 import com.gpr.auth.enums.RegistrationMode;
 import com.gpr.auth.repository.AppRepository;
+import com.gpr.auth.repository.CompanyRepository;
 import com.gpr.auth.repository.RefreshTokenRepository;
 import com.gpr.auth.repository.UserAppAccessRepository;
+import com.gpr.auth.repository.UserCompanyRepository;
 import com.gpr.auth.repository.UserInfoRepository;
 import com.gpr.auth.repository.UserRepository;
 import com.gpr.auth.security.JwtService;
@@ -44,7 +49,7 @@ import org.springframework.web.server.ResponseStatusException;
 @RequiredArgsConstructor
 public class AuthService {
 
-    private static final String COMPANY_EMAIL_DOMAIN = "@company.com";
+    private static final String COMPANY_EMAIL_DOMAIN = "@gpr.com";
 
     private final AuthenticationManager authenticationManager;
     private final UserRepository userRepository;
@@ -55,9 +60,15 @@ public class AuthService {
     private final AppRepository appRepository;
     private final UserAppAccessRepository userAppAccessRepository;
     private final UserDirectoryService userDirectoryService;
+    private final CompanyRepository companyRepository;
+    private final UserCompanyRepository userCompanyRepository;
+
+    /** Tokens + the tenant-selection state the client needs after authenticating. */
+    public record LoginOutcome(LoginResult result, List<CompanyInfo> companies,
+                               boolean requiresCompanySelection, Long companyId) {}
 
     @Transactional
-    public LoginResult login(AuthRequest request, String clientId) {
+    public LoginOutcome login(AuthRequest request, String clientId) {
         // The submitted identifier (carried in the email field) may be email, username, or phone.
         String identifier = request.getEmail();
         authenticationManager.authenticate(
@@ -68,7 +79,53 @@ public class AuthService {
                 .orElseThrow(() -> new IllegalStateException("User disappeared after authentication"));
 
         enforceAppAccess(user, resolveApp(clientId));
-        return issueTokens(user, clientId);
+
+        List<CompanyInfo> companies = companiesForUser(user);
+        if (companies.size() == 1) {
+            // Single company → select it now and mint a tenant-scoped token.
+            Long companyId = companies.get(0).id();
+            return new LoginOutcome(issueTokens(user, companyId, clientId), companies, false, companyId);
+        }
+        // 0 (no company yet) or many (must choose) → identity token without a company.
+        return new LoginOutcome(issueTokens(user, null, clientId), companies, companies.size() > 1, null);
+    }
+
+    /** Selects (or switches to) a company: validates access, re-mints the token with companyId. */
+    @Transactional
+    public LoginOutcome selectCompany(Long userId, Long companyId, String clientId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user not found: " + userId));
+        if (!canAccess(user, companyId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No access to company " + companyId);
+        }
+        return new LoginOutcome(issueTokens(user, companyId, clientId), companiesForUser(user), false, companyId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<CompanyInfo> companiesForUser(Long userId) {
+        return userRepository.findById(userId).map(this::companiesForUser).orElse(List.of());
+    }
+
+    private List<CompanyInfo> companiesForUser(User user) {
+        if (user.isSuperAdmin()) {
+            return companyRepository.findAll().stream()
+                    .filter(Company::isActive)
+                    .map(c -> new CompanyInfo(c.getId(), c.getName(), c.getSlug()))
+                    .toList();
+        }
+        return userCompanyRepository.findByUserId(user.getId()).stream()
+                .filter(UserCompany::isActive)
+                .map(UserCompany::getCompany)
+                .filter(Company::isActive)
+                .map(c -> new CompanyInfo(c.getId(), c.getName(), c.getSlug()))
+                .toList();
+    }
+
+    private boolean canAccess(User user, Long companyId) {
+        if (user.isSuperAdmin()) {
+            return companyRepository.findById(companyId).filter(Company::isActive).isPresent();
+        }
+        return userCompanyRepository.existsByUserIdAndCompanyId(user.getId(), companyId);
     }
 
     @Transactional
@@ -81,7 +138,7 @@ public class AuthService {
         if (existing != null) {
             grantAccessIfMissing(existing, app);
             log.info("Register-or-link: linked existing identity {} to app '{}'", email, clientId);
-            return issueTokens(existing, clientId);
+            return issueTokens(existing, null, clientId);
         }
 
         User user = User.builder()
@@ -102,7 +159,7 @@ public class AuthService {
         grantAccessIfMissing(user, app);
 
         log.info("Registered new identity {} and granted '{}' access", user.getEmail(), clientId);
-        return issueTokens(user, clientId);
+        return issueTokens(user, null, clientId);
     }
 
     /**
@@ -229,10 +286,10 @@ public class AuthService {
 
     // ── helpers ──────────────────────────────────────────────────────
 
-    private LoginResult issueTokens(User user, String clientId) {
+    private LoginResult issueTokens(User user, Long companyId, String clientId) {
         refreshTokenRepository.revokeAllByUser(user);
 
-        String accessToken = jwtService.generateAccessToken(user, clientId);
+        String accessToken = jwtService.generateAccessToken(user, companyId, clientId);
         String refreshToken = jwtService.generateRefreshToken(user);
 
         refreshTokenRepository.save(RefreshToken.builder()

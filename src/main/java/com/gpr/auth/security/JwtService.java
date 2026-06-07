@@ -34,16 +34,27 @@ public class JwtService {
     private static final String DEFAULT_AUD = "workos";
 
     public String generateAccessToken(User user) {
-        return generateAccessToken(user, DEFAULT_AUD);
+        return generateAccessToken(user, null, DEFAULT_AUD);
     }
 
-    /** Generates an identity token scoped to a given app (the {@code aud} claim). */
     public String generateAccessToken(User user, String aud) {
+        return generateAccessToken(user, null, aud);
+    }
+
+    /**
+     * Generates an identity token. Carries the platform super-admin flag always, and the selected
+     * tenant ({@code companyId}) once the user has chosen a company.
+     */
+    public String generateAccessToken(User user, Long companyId, String aud) {
         io.jsonwebtoken.JwtBuilder builder = Jwts.builder()
                 .subject(user.getId().toString())
                 .claim("email", user.getEmail())
+                .claim("super_admin", user.isSuperAdmin())
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + accessTokenExpiry));
+        if (companyId != null) {
+            builder.claim("companyId", companyId);
+        }
         if (aud != null && !aud.isBlank()) {
             builder.audience().add(aud).and();
         }
@@ -79,6 +90,11 @@ public class JwtService {
 
     public Long extractUserId(String token) {
         return Long.parseLong(extractAllClaims(token).getSubject());
+    }
+
+    public Long extractCompanyId(String token) {
+        Object v = extractAllClaims(token).get("companyId");
+        return v instanceof Number ? ((Number) v).longValue() : null;
     }
 
     // ── helpers ──────────────────────────────────────────────────────
