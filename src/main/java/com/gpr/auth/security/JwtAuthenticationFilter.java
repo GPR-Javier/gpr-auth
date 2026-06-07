@@ -7,15 +7,11 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
@@ -50,17 +46,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 String email = claims.get("email", String.class);
                 UserDetails userDetails = userDetailsService.loadUserByUsername(email);
 
-                List<GrantedAuthority> effectiveAuthorities = new ArrayList<>(userDetails.getAuthorities());
-                String tokenRole = claims.get("role", String.class);
-                if ("ADMIN".equalsIgnoreCase(tokenRole)) {
-                    SimpleGrantedAuthority adminAuthority = new SimpleGrantedAuthority("ROLE_ADMIN");
-                    if (!effectiveAuthorities.contains(adminAuthority)) {
-                        effectiveAuthorities.add(adminAuthority);
-                    }
-                }
-
+                // Identity-only: no role authorities. gpr-auth's endpoints gate on authentication,
+                // not authorization; per-app roles live in WorkOS.
                 UsernamePasswordAuthenticationToken authToken =
-                        new UsernamePasswordAuthenticationToken(userDetails, null, effectiveAuthorities);
+                        new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
                 authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authToken);
             } catch (Exception e) {

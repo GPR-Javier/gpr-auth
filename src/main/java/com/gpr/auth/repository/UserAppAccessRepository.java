@@ -1,8 +1,8 @@
 package com.gpr.auth.repository;
 
 import com.gpr.auth.entity.App;
+import com.gpr.auth.entity.User;
 import com.gpr.auth.entity.UserAppAccess;
-import com.gpr.common.entity.User;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;

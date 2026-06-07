@@ -1,7 +1,7 @@
 package com.gpr.auth.repository;
 
-import com.gpr.common.entity.RefreshToken;
-import com.gpr.common.entity.User;
+import com.gpr.auth.entity.RefreshToken;
+import com.gpr.auth.entity.User;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;

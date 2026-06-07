@@ -1,8 +1,8 @@
 package com.gpr.auth.service;
 
+import com.gpr.auth.entity.User;
 import com.gpr.auth.repository.UserRepository;
 import com.gpr.common.dto.UserSummaryDto;
-import com.gpr.common.entity.User;
 import java.util.Collection;
 import java.util.List;
 import lombok.RequiredArgsConstructor;

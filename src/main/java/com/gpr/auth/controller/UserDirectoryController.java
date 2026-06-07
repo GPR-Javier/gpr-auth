@@ -1,21 +1,28 @@
 package com.gpr.auth.controller;
 
+import com.gpr.auth.dto.IdentityCreateRequest;
+import com.gpr.auth.service.AuthService;
 import com.gpr.auth.service.UserDirectoryService;
 import com.gpr.common.dto.UserSummaryDto;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Internal cross-service user lookup. Consumed by other apps (e.g. wos-hr) to resolve user display
- * data by id — the replacement for the old {@code @ManyToOne User} join, now that apps reference a
- * user only by {@code userId}.
+ * Internal cross-service identity API. Apps (e.g. wos-hr) resolve user display data by id, and
+ * provision identities for new employees, without owning the {@code users} table.
  *
- * <p>GET /users/summaries?ids=1,2,3
+ * <p>GET  /users/summaries?ids=1,2,3 — display projections by id<br>
+ * POST /users — create-or-find identity (returns the projection incl. the new userId)
  */
 @RestController
 @RequestMapping("/users")
@@ -23,9 +30,22 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserDirectoryController {
 
     private final UserDirectoryService userDirectoryService;
+    private final AuthService authService;
 
     @GetMapping("/summaries")
     public ResponseEntity<List<UserSummaryDto>> getSummaries(@RequestParam List<Long> ids) {
         return ResponseEntity.ok(userDirectoryService.getSummaries(ids));
+    }
+
+    @PostMapping
+    public ResponseEntity<UserSummaryDto> createIdentity(
+            @Valid @RequestBody IdentityCreateRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        String appId = httpRequest.getHeader("X-App-Id");
+        String clientId = (appId == null || appId.isBlank()) ? "workos" : appId.trim();
+        UserSummaryDto created = authService.createIdentity(
+                request.getFirstName(), request.getLastName(), request.getPassword(), clientId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 }

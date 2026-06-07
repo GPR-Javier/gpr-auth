@@ -2,33 +2,21 @@ package com.gpr.auth.service;
 
 import com.gpr.auth.dto.LoginResult;
 import com.gpr.auth.dto.RegisterRequest;
-import com.gpr.auth.dto.RoleSelectionRequest;
-import com.gpr.auth.dto.SwitchRoleRequest;
 import com.gpr.auth.entity.App;
+import com.gpr.auth.entity.RefreshToken;
+import com.gpr.auth.entity.User;
 import com.gpr.auth.entity.UserAppAccess;
 import com.gpr.auth.enums.RegistrationMode;
 import com.gpr.auth.repository.AppRepository;
 import com.gpr.auth.repository.RefreshTokenRepository;
 import com.gpr.auth.repository.UserAppAccessRepository;
 import com.gpr.auth.repository.UserRepository;
-import com.gpr.auth.repository.UserRoleRepository;
 import com.gpr.auth.security.JwtService;
 import com.gpr.common.dto.AuthRequest;
 import com.gpr.common.dto.AuthResponse;
-import com.gpr.common.dto.RoleInfo;
-import com.gpr.common.dto.UserDTO;
-import com.gpr.common.dto.UserRoleSummaryDTO;
-import com.gpr.common.entity.Functionality;
-import com.gpr.common.entity.RefreshToken;
-import com.gpr.common.entity.User;
-import com.gpr.common.entity.UserRole;
-import com.gpr.common.entity.UserRoleAssignment;
-import com.gpr.common.enums.Role;
-import com.gpr.common.enums.RoleType;
+import com.gpr.common.dto.UserSummaryDto;
 import com.gpr.common.exception.InvalidTokenException;
-import com.gpr.common.exception.ResourceNotFoundException;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,17 +28,22 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+/**
+ * Identity-only authentication. gpr-auth proves who the caller is, gates app access, and mints a
+ * bare IDENTITY token (sub + email + aud — no roles). Per-app roles and the role-bearing access
+ * token are resolved by WorkOS (wos-hr {@code /auth/session}) from this identity token.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthService {
 
+    private static final String COMPANY_EMAIL_DOMAIN = "@company.com";
+
     private final AuthenticationManager authenticationManager;
     private final UserRepository userRepository;
-    private final UserRoleRepository userRoleRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtService jwtService;
-    private final UserRoleAccessResolver userRoleAccessResolver;
     private final PasswordEncoder passwordEncoder;
     private final AppRepository appRepository;
     private final UserAppAccessRepository userAppAccessRepository;
@@ -61,48 +54,70 @@ public class AuthService {
                 new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
         );
 
-        log.debug("Authentication succeeded for {}; loading user entity", request.getEmail());
-        User user;
-        List<UserRole> activeRoles;
-        try {
-            user = userRepository.findByEmail(request.getEmail())
-                    .orElseThrow(() -> new IllegalStateException("User disappeared after authentication"));
-            log.debug("User {} loaded, resolving active roles (assignments={})", request.getEmail(), user.getRoleAssignments().size());
-            activeRoles = userRoleAccessResolver.resolveActiveUserRoles(user);
-            log.debug("Active roles for {}: {}", request.getEmail(), activeRoles.stream().map(UserRole::getName).toList());
-        } catch (Exception e) {
-            log.error("Post-authentication failure for {}: [{}] {}", request.getEmail(), e.getClass().getSimpleName(), e.getMessage(), e);
-            throw e;
-        }
+        User user = userRepository.findByEmail(request.getEmail())
+                .orElseThrow(() -> new IllegalStateException("User disappeared after authentication"));
 
         // IdP gate: the user must be allowed to use this app (auto-provisioned for self-signup apps).
         enforceAppAccess(user, resolveApp(clientId));
 
-        // Phase 3 (Option A): role selection moves to wos-hr (/auth/session). Login always establishes
-        // identity here (sets the cookie); the frontend then calls wos-hr to resolve roles, handle
-        // multi-role selection, and mint the role-bearing token.
-        return issueTokens(user, activeRoles.isEmpty() ? null : activeRoles.get(0), activeRoles, clientId);
+        // Identity established here (sets the cookie). The frontend then calls WorkOS /auth/session
+        // to resolve roles and mint the role-bearing token.
+        return issueTokens(user, clientId);
     }
 
     @Transactional
-    public LoginResult loginWithRole(RoleSelectionRequest request, String clientId) {
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
-        );
+    public LoginResult register(RegisterRequest req, String clientId) {
+        String email = req.getEmail().toLowerCase().trim();
+        App app = resolveApp(clientId);
 
-        User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new IllegalStateException("User disappeared after authentication"));
+        // Register-or-link: an existing identity is linked to this app, never duplicated.
+        User existing = userRepository.findByEmail(email).orElse(null);
+        if (existing != null) {
+            grantAccessIfMissing(existing, app);
+            log.info("Register-or-link: linked existing identity {} to app '{}'", email, clientId);
+            return issueTokens(existing, clientId);
+        }
 
-        enforceAppAccess(user, resolveApp(clientId));
+        User user = User.builder()
+                .firstName(req.getFirstName().trim())
+                .lastName(req.getLastName().trim())
+                .email(email)
+                .password(passwordEncoder.encode(req.getPassword()))
+                .employeeId(generateUniqueIdentityHandle(req.getFirstName(), req.getLastName()))
+                .active(true)
+                .build();
+        userRepository.save(user);
+        grantAccessIfMissing(user, app);
 
-        List<UserRole> activeRoles = userRoleAccessResolver.resolveActiveUserRoles(user);
+        log.info("Registered new identity {} and granted '{}' access", user.getEmail(), clientId);
+        return issueTokens(user, clientId);
+    }
 
-        UserRole selectedRole = activeRoles.stream()
-                .filter(er -> er.getId().equals(request.getUserRoleId()))
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("User role not active for this user"));
+    /**
+     * Internal cross-service identity provisioning (create-or-find). WorkOS "add employee" calls
+     * this to obtain a userId before writing its local employee profile. Idempotent on email.
+     */
+    @Transactional
+    public UserSummaryDto createIdentity(String firstName, String lastName, String rawPassword, String clientId) {
+        App app = resolveApp(clientId);
+        String handle = generateUniqueIdentityHandle(firstName, lastName);
+        String email = handle + COMPANY_EMAIL_DOMAIN;
 
-        return issueTokens(user, selectedRole, activeRoles, clientId);
+        User user = userRepository.findByEmail(email).orElse(null);
+        if (user == null) {
+            user = User.builder()
+                    .firstName(firstName.trim())
+                    .lastName(lastName.trim())
+                    .email(email)
+                    .password(passwordEncoder.encode(rawPassword))
+                    .employeeId(handle)
+                    .active(true)
+                    .build();
+            userRepository.save(user);
+            log.info("createIdentity: provisioned identity {} ({})", email, user.getId());
+        }
+        grantAccessIfMissing(user, app);
+        return toSummary(user);
     }
 
     @Transactional
@@ -115,69 +130,8 @@ public class AuthService {
         if (!jwtService.validateToken(rawRefreshToken)) throw new InvalidTokenException("Refresh token is invalid");
 
         User user = stored.getUser();
-        List<UserRole> activeRoles = userRoleAccessResolver.resolveActiveUserRoles(user);
-        String newAccessToken = jwtService.generateAccessToken(user, activeRoles);
-        AuthResponse response = buildAuthResponse(user, null, activeRoles);
-
-        return new LoginResult(response, newAccessToken, rawRefreshToken);
-    }
-
-    /**
-     * Switches the active role for an already-authenticated user.
-     * No password required â€” identity is verified via the existing JWT.
-     * Returns a new access token scoped to the selected role; refresh token is unchanged.
-     */
-    @Transactional
-    public LoginResult switchRole(String email, SwitchRoleRequest request) {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalStateException("Authenticated user not found in DB"));
-
-        List<UserRole> activeRoles = userRoleAccessResolver.resolveActiveUserRoles(user);
-
-        UserRole selectedRole = activeRoles.stream()
-                .filter(er -> er.getId().equals(request.getUserRoleId()))
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("User role not active for this user"));
-
-        String newAccessToken = jwtService.generateAccessToken(user, selectedRole);
-        AuthResponse authResponse = buildAuthResponse(user, selectedRole, activeRoles);
-
-        // Refresh token is not rotated â€” caller should keep their existing refresh_token cookie
-        return new LoginResult(authResponse, newAccessToken, null);
-    }
-
-    @Transactional
-    public LoginResult register(RegisterRequest req, String clientId) {
-        String email = req.getEmail().toLowerCase().trim();
-        App app = resolveApp(clientId);
-
-        // Register-or-link: an existing identity is linked to this app, never duplicated.
-        User existing = userRepository.findByEmail(email).orElse(null);
-        if (existing != null) {
-            grantAccessIfMissing(existing, app);
-            List<UserRole> activeRoles = userRoleAccessResolver.resolveActiveUserRoles(existing);
-            log.info("Register-or-link: linked existing identity {} to app '{}'", email, clientId);
-            return issueTokens(existing, activeRoles.isEmpty() ? null : activeRoles.get(0), activeRoles, clientId);
-        }
-
-        UserRole applicantRole = userRoleRepository.findByName("Applicant")
-                .orElseThrow(() -> new IllegalStateException("Applicant role not seeded — restart the auth service"));
-
-        User user = User.builder()
-                .firstName(req.getFirstName().trim())
-                .lastName(req.getLastName().trim())
-                .email(email)
-                .password(passwordEncoder.encode(req.getPassword()))
-                .employeeId("APP-" + System.currentTimeMillis())
-                .role(Role.APPLICANT)
-                .active(true)
-                .build();
-        user.addRoleAssignment(applicantRole);
-        userRepository.save(user);
-        grantAccessIfMissing(user, app);
-
-        log.info("Registered new applicant {} and granted '{}' access", user.getEmail(), clientId);
-        return issueTokens(user, applicantRole, List.of(applicantRole), clientId);
+        String newAccessToken = jwtService.generateAccessToken(user);
+        return new LoginResult(identityResponse(), newAccessToken, rawRefreshToken);
     }
 
     @Transactional
@@ -189,73 +143,12 @@ public class AuthService {
                 });
     }
 
-    public UserDTO me(String email, Long activeRoleId) {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalStateException("Authenticated user not found in DB"));
-        UserDTO dto = toDTO(user);
-        dto.setAuthorities(computeEffectiveAuthorities(user));
+    // ── helpers ──────────────────────────────────────────────────────
 
-        UserRoleAssignment active = findAssignment(user, activeRoleId);
-        // Unknown/ambiguous active role → treat as onboarded so we never force an unintended tour.
-        dto.setOnboarded(active == null || active.isOnboarded());
-        dto.setOnboardingDone(active != null ? new ArrayList<>(active.getOnboardingDone()) : List.of());
-        return dto;
-    }
-
-    /**
-     * Appends a screen key to the active role's per-screen onboarding progress (idempotent).
-     * Returns the refreshed onboarding state so the caller can update its store without a re-login.
-     */
-    @Transactional
-    public AuthResponse completeScreenOnboarding(String email, Long activeRoleId, String screenKey) {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalStateException("Authenticated user not found in DB"));
-        UserRoleAssignment active = requireAssignment(user, activeRoleId);
-
-        List<String> done = new ArrayList<>(active.getOnboardingDone());
-        if (!done.contains(screenKey)) {
-            done.add(screenKey);
-            active.setOnboardingDone(done); // new list instance so Hibernate detects the JSON change
-            userRepository.save(user);
-        }
-        return buildAuthResponse(user, active.getUserRole(), userRoleAccessResolver.resolveActiveUserRoles(user));
-    }
-
-    /** Marks the active role as fully onboarded (the global "skip all"). */
-    @Transactional
-    public AuthResponse skipOnboarding(String email, Long activeRoleId) {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalStateException("Authenticated user not found in DB"));
-        UserRoleAssignment active = requireAssignment(user, activeRoleId);
-        active.setOnboarded(true);
-        userRepository.save(user);
-        return buildAuthResponse(user, active.getUserRole(), userRoleAccessResolver.resolveActiveUserRoles(user));
-    }
-
-    /**
-     * Effective authorities for the user *right now* — flattened from currently-active UserRoles
-     * to AccessRoles to enabled Functionalities. Matches the logic in CustomUserDetailsService so
-     * what /auth/me returns is consistent with what the JWT filter enforces on protected endpoints.
-     */
-    private List<String> computeEffectiveAuthorities(User user) {
-        return userRoleAccessResolver.resolveActiveUserRoles(user).stream()
-                .flatMap(ur -> ur.getAccessRoles().stream())
-                .flatMap(ar -> ar.getFunctionalities().stream())
-                .filter(Functionality::isEnabled)
-                .filter(f -> f.getCode() != null)
-                .map(f -> f.getCode().getCode())
-                .distinct()
-                .toList();
-    }
-
-    // â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-    private LoginResult issueTokens(User user, UserRole selectedRole, List<UserRole> activeRoles, String clientId) {
+    private LoginResult issueTokens(User user, String clientId) {
         refreshTokenRepository.revokeAllByUser(user);
 
-        String accessToken = selectedRole != null
-                ? jwtService.generateAccessToken(user, selectedRole, clientId)
-                : jwtService.generateAccessToken(user, activeRoles, clientId);
+        String accessToken = jwtService.generateAccessToken(user, clientId);
         String refreshToken = jwtService.generateRefreshToken(user);
 
         refreshTokenRepository.save(RefreshToken.builder()
@@ -264,12 +157,26 @@ public class AuthService {
                 .expiresAt(LocalDateTime.now().plusSeconds(604800))
                 .build());
 
-        return new LoginResult(buildAuthResponse(user, selectedRole, activeRoles), accessToken, refreshToken);
+        return new LoginResult(identityResponse(), accessToken, refreshToken);
+    }
+
+    /**
+     * Minimal identity response — login succeeded and the cookie is set. Role label, authorities,
+     * and onboarding state are filled in by WorkOS /auth/session, which the frontend calls next.
+     */
+    private AuthResponse identityResponse() {
+        return AuthResponse.builder()
+                .role("")
+                .userRoleNames(List.of())
+                .authorities(List.of())
+                .onboarded(true)
+                .onboardingDone(List.of())
+                .requiresRoleSelection(false)
+                .build();
     }
 
     // ── app access (IdP) ─────────────────────────────────────────────
 
-    /** Resolves the registered app for a clientId, or 403 if unknown/inactive. */
     private App resolveApp(String clientId) {
         return appRepository.findByClientId(clientId)
                 .filter(App::isActive)
@@ -277,10 +184,6 @@ public class AuthService {
                         HttpStatus.FORBIDDEN, "Unknown or inactive app: " + clientId));
     }
 
-    /**
-     * Ensures the user may use this app. Self-signup apps auto-provision access on first login;
-     * invite-only apps reject when the (user, app) grant is missing.
-     */
     private void enforceAppAccess(User user, App app) {
         if (userAppAccessRepository.existsByUserAndApp(user, app)) {
             return;
@@ -308,105 +211,42 @@ public class AuthService {
                 .build());
     }
 
-    private AuthResponse buildAuthResponse(User user, UserRole selectedRole, List<UserRole> activeRoles) {
-        List<UserRole> roles = selectedRole != null ? List.of(selectedRole) : activeRoles;
+    // ── identity handle generation ───────────────────────────────────
 
-        List<String> authorities = roles.stream()
-                .flatMap(er -> er.getAccessRoles().stream())
-                .flatMap(ar -> ar.getFunctionalities().stream())
-                .filter(Functionality::isEnabled)
-                .filter(f -> f.getCode() != null)
-                .map(f -> f.getCode().getCode())
-                .distinct()
-                .toList();
-
-        List<String> userRoleNames = roles.stream().map(UserRole::getName).toList();
-
-        // Derive role label from whether any active role is an admin-type role.
-        // This replaces the static User.role column as the driver for the sidebar badge.
-        boolean isAdmin = roles.stream().anyMatch(UserRole::isAdmin);
-        boolean isApplicant = roles.stream().anyMatch(r -> r.getRoleType() == RoleType.APPLICANT);
-        String roleLabel = isAdmin ? "ADMIN" : (isApplicant ? "APPLICANT" : "EMPLOYEE");
-
-        // Onboarding state of the *active* role: the selected role if one was chosen, otherwise
-        // the sole active role. When it can't be resolved unambiguously, default to onboarded so
-        // we never force an unintended tour.
-        Long activeRoleId = selectedRole != null ? selectedRole.getId()
-                : (activeRoles.size() == 1 ? activeRoles.get(0).getId() : null);
-        UserRoleAssignment activeAssignment = findAssignment(user, activeRoleId);
-        boolean onboarded = activeAssignment == null || activeAssignment.isOnboarded();
-        List<String> onboardingDone = activeAssignment != null
-                ? new ArrayList<>(activeAssignment.getOnboardingDone())
-                : List.of();
-
-        return AuthResponse.builder()
-                .role(roleLabel)
-                .userRoleNames(userRoleNames)
-                .authorities(authorities)
-                .onboarded(onboarded)
-                .onboardingDone(onboardingDone)
-                .requiresRoleSelection(false)
-                .build();
-    }
-
-    /** Finds the permanent role assignment backing the given role id, or null. */
-    private UserRoleAssignment findAssignment(User user, Long roleId) {
-        if (roleId == null) {
-            return null;
+    /** "Gene Paul Mar" + "Javier" => "gpmjavier", suffixed with a counter until unique. */
+    private String generateUniqueIdentityHandle(String firstName, String lastName) {
+        String base = buildBaseIdentityHandle(firstName, lastName);
+        String candidate = base;
+        int counter = 1;
+        while (identityHandleExists(candidate)) {
+            candidate = base + counter;
+            counter++;
         }
-        return user.getRoleAssignments().stream()
-                .filter(a -> a.getUserRole() != null && roleId.equals(a.getUserRole().getId()))
-                .findFirst()
-                .orElse(null);
+        return candidate;
     }
 
-    private UserRoleAssignment requireAssignment(User user, Long roleId) {
-        UserRoleAssignment assignment = findAssignment(user, roleId);
-        if (assignment == null) {
-            throw new ResourceNotFoundException("No active role assignment to onboard for this user");
-        }
-        return assignment;
+    private String buildBaseIdentityHandle(String firstName, String lastName) {
+        String initials = java.util.Arrays.stream(firstName.trim().split("\\s+"))
+                .filter(word -> !word.isBlank())
+                .map(word -> String.valueOf(word.charAt(0)))
+                .collect(java.util.stream.Collectors.joining())
+                .toLowerCase();
+        String normalizedLastName = lastName.trim().toLowerCase().replaceAll("\\s+", "");
+        return initials + normalizedLastName;
     }
 
-    private boolean isRoleOnboarded(User user, Long roleId) {
-        UserRoleAssignment assignment = findAssignment(user, roleId);
-        return assignment == null || assignment.isOnboarded();
+    private boolean identityHandleExists(String handle) {
+        return userRepository.existsByEmployeeId(handle)
+                || userRepository.existsByEmail(handle + COMPANY_EMAIL_DOMAIN);
     }
 
-    private UserDTO toDTO(User user) {
-        return UserDTO.builder()
+    private UserSummaryDto toSummary(User user) {
+        return UserSummaryDto.builder()
                 .id(user.getId())
                 .employeeId(user.getEmployeeId())
                 .firstName(user.getFirstName())
                 .lastName(user.getLastName())
                 .email(user.getEmail())
-                .role(user.getRole().name())
-                .userRoles(user.getRoleAssignments().stream()
-                        .map(a -> UserRoleSummaryDTO.builder()
-                                .roleId(a.getUserRole().getId())
-                                .roleName(a.getUserRole().getName())
-                                .roleColor(a.getUserRole().getColor())
-                                .temporary(!a.isPermanent())
-                                .startAt(a.getStartAt())
-                                .endAt(a.getEndAt())
-                                .build())
-                        .toList())
-                .active(user.isActive())
-                .createdAt(user.getCreatedAt())
-                .updatedAt(user.getUpdatedAt())
                 .build();
-    }
-
-    private boolean isTemporaryRole(User user, Long roleId, LocalDateTime now) {
-        if (roleId == null) {
-            return false;
-        }
-        return user.getRoleAssignments().stream()
-                .filter(assignment -> assignment.getUserRole() != null
-                        && roleId.equals(assignment.getUserRole().getId())
-                        && assignment.isActiveAt(now))
-                .findFirst()
-                .map(assignment -> !assignment.isPermanent())
-                .orElse(false);
     }
 }

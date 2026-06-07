@@ -1,27 +1,25 @@
 package com.gpr.auth.security;
 
+import com.gpr.auth.entity.User;
 import com.gpr.auth.repository.UserRepository;
-import com.gpr.auth.service.UserRoleAccessResolver;
-import com.gpr.common.entity.Functionality;
-import com.gpr.common.entity.User;
-import com.gpr.common.entity.UserRole;
-import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Loads an identity for authentication. gpr-auth authenticates <em>who</em> the user is; it grants
+ * no role authorities — authorization (roles/functionalities) is resolved per-app by WorkOS from
+ * the identity token, never here.
+ */
 @Service
 @RequiredArgsConstructor
 public class CustomUserDetailsService implements UserDetailsService {
 
     private final UserRepository userRepository;
-    private final UserRoleAccessResolver userRoleAccessResolver;
 
     @Override
     @Transactional(readOnly = true)
@@ -34,32 +32,7 @@ public class CustomUserDetailsService implements UserDetailsService {
                 user.getPassword(),
                 user.isActive(),
                 true, true, true,
-                buildAuthorities(user)
+                List.of()
         );
-    }
-
-    private List<GrantedAuthority> buildAuthorities(User user) {
-        List<GrantedAuthority> authorities = new ArrayList<>();
-
-        List<UserRole> activeRoles = userRoleAccessResolver.resolveActiveUserRoles(user);
-
-        // Grant ROLE_ADMIN if any active user role is an admin-type role.
-        // This replaces the old User.role == ADMIN check so all security decisions
-        // flow through UserRole.isAdmin rather than the deprecated User.role column.
-        boolean isAdmin = activeRoles.stream().anyMatch(UserRole::isAdmin);
-        if (isAdmin) {
-            authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
-        }
-
-        activeRoles.stream()
-                .flatMap(er -> er.getAccessRoles().stream())
-                .flatMap(ar -> ar.getFunctionalities().stream())
-                .filter(Functionality::isEnabled)
-                .filter(f -> f.getCode() != null)
-                .map(f -> new SimpleGrantedAuthority(f.getCode().getCode()))
-                .distinct()
-                .forEach(authorities::add);
-
-        return authorities;
     }
 }

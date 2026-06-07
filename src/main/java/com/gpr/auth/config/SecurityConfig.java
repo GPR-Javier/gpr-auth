@@ -45,10 +45,11 @@ public class SecurityConfig {
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/register", "/login", "/login/select-role", "/refresh", "/logout").permitAll()
-                        // Internal cross-service user lookup (dev): permitted for now —
+                        .requestMatchers("/register", "/login", "/refresh", "/logout").permitAll()
+                        // Internal cross-service identity API (dev): permitted for now —
                         // lock down with a service token / mTLS before production.
                         .requestMatchers(HttpMethod.GET, "/users/summaries").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/users").permitAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex

@@ -1,6 +1,5 @@
 package com.gpr.auth.entity;
 
-import com.gpr.common.entity.User;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import lombok.*;
