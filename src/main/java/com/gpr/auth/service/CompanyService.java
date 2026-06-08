@@ -9,6 +9,7 @@ import com.gpr.auth.entity.UserCompany;
 import com.gpr.auth.repository.CompanyRepository;
 import com.gpr.auth.repository.UserCompanyRepository;
 import com.gpr.auth.repository.UserRepository;
+import com.gpr.common.dto.CompanyProfileDto;
 import com.gpr.common.dto.UserSummaryDto;
 import com.gpr.common.exception.ResourceNotFoundException;
 import java.util.List;
@@ -96,5 +97,39 @@ public class CompanyService {
 
     private CompanyInfo toInfo(Company c) {
         return new CompanyInfo(c.getId(), c.getName(), c.getSlug());
+    }
+
+    // ── Company profile (the "My Company" details) ──────────────────────────────
+
+    @Transactional(readOnly = true)
+    public CompanyProfileDto getProfile(Long companyId) {
+        return toProfile(findCompany(companyId));
+    }
+
+    @Transactional
+    public CompanyProfileDto updateProfile(Long companyId, CompanyProfileDto dto) {
+        Company c = findCompany(companyId);
+        c.setTagline(dto.tagline());
+        c.setAbout(dto.about());
+        c.setIndustry(dto.industry());
+        c.setFounded(dto.founded());
+        c.setCompanySize(dto.companySize());
+        c.setHeadquarters(dto.headquarters());
+        c.setEmail(dto.email());
+        c.setPhone(dto.phone());
+        c.setWebsite(dto.website());
+        c.setAddress(dto.address());
+        return toProfile(companyRepository.save(c));
+    }
+
+    private Company findCompany(Long companyId) {
+        return companyRepository.findById(companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Company not found: " + companyId));
+    }
+
+    private CompanyProfileDto toProfile(Company c) {
+        return new CompanyProfileDto(
+                c.getTagline(), c.getAbout(), c.getIndustry(), c.getFounded(), c.getCompanySize(),
+                c.getHeadquarters(), c.getEmail(), c.getPhone(), c.getWebsite(), c.getAddress());
     }
 }

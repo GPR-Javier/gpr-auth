@@ -31,6 +31,30 @@ public class Company {
     @Column(name = "is_active", nullable = false)
     private boolean active;
 
+    // ── Descriptive profile (the "My Company" screen) — editable by a company admin via WorkOS ──
+    private String tagline;
+
+    @Column(columnDefinition = "text")
+    private String about;
+
+    private String industry;
+
+    private String founded;
+
+    @Column(name = "company_size")
+    private String companySize;
+
+    private String headquarters;
+
+    private String email;
+
+    private String phone;
+
+    private String website;
+
+    @Column(columnDefinition = "text")
+    private String address;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

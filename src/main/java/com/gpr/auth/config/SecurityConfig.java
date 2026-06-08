@@ -50,6 +50,7 @@ public class SecurityConfig {
                         // lock down with a service token / mTLS before production.
                         .requestMatchers(HttpMethod.GET, "/users/summaries").permitAll()
                         .requestMatchers(HttpMethod.POST, "/users").permitAll()
+                        .requestMatchers("/companies/*/profile").permitAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex
