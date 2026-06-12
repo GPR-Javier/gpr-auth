@@ -35,9 +35,16 @@ public class CompanyService {
     /** The created company + the new Company Admin identity's userId (for WorkOS provisioning). */
     public record CompanyAdminResult(Long companyId, Long adminUserId, String name, String slug) {}
 
+    /** Slugs the frontend reserves for its own routes (e.g. the company-less "/guest" space). */
+    private static final java.util.Set<String> RESERVED_SLUGS = java.util.Set.of("guest", "api");
+
     @Transactional
     public CompanyAdminResult createCompany(CreateCompanyRequest req) {
-        if (companyRepository.existsBySlug(req.getSlug().trim())) {
+        String slug = req.getSlug().trim();
+        if (RESERVED_SLUGS.contains(slug.toLowerCase())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Company slug is reserved: " + slug);
+        }
+        if (companyRepository.existsBySlug(slug)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Company slug already in use: " + req.getSlug());
         }
         Company company = companyRepository.save(Company.builder()
@@ -97,6 +104,15 @@ public class CompanyService {
 
     private CompanyInfo toInfo(Company c) {
         return new CompanyInfo(c.getId(), c.getName(), c.getSlug());
+    }
+
+    /** Resolves an active company by its public slug — used pre-login (e.g. branded login pages). */
+    @Transactional(readOnly = true)
+    public CompanyInfo findBySlug(String slug) {
+        return companyRepository.findBySlug(slug.trim())
+                .filter(Company::isActive)
+                .map(this::toInfo)
+                .orElseThrow(() -> new ResourceNotFoundException("Company not found: " + slug));
     }
 
     // ── Company profile (the "My Company" details) ──────────────────────────────

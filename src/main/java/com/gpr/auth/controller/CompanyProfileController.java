@@ -1,5 +1,6 @@
 package com.gpr.auth.controller;
 
+import com.gpr.auth.dto.CompanyInfo;
 import com.gpr.auth.service.CompanyService;
 import com.gpr.common.dto.CompanyProfileDto;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class CompanyProfileController {
 
     private final CompanyService companyService;
+
+    /** Resolve a company by its public slug (id/name/slug) — used pre-login for branded login pages. */
+    @GetMapping("/by-slug/{slug}")
+    public ResponseEntity<CompanyInfo> bySlug(@PathVariable String slug) {
+        return ResponseEntity.ok(companyService.findBySlug(slug));
+    }
 
     @GetMapping("/{id}/profile")
     public ResponseEntity<CompanyProfileDto> get(@PathVariable Long id) {
