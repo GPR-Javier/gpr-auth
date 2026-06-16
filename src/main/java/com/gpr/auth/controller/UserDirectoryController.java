@@ -37,6 +37,13 @@ public class UserDirectoryController {
         return ResponseEntity.ok(userDirectoryService.getSummaries(ids));
     }
 
+    /** Resolve a single identity by login email → projection (404 when no such identity). */
+    @GetMapping("/by-email")
+    public ResponseEntity<UserSummaryDto> getByEmail(@RequestParam String email) {
+        UserSummaryDto summary = userDirectoryService.getByEmail(email);
+        return summary == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(summary);
+    }
+
     @PostMapping
     public ResponseEntity<UserSummaryDto> createIdentity(
             @Valid @RequestBody IdentityCreateRequest request,

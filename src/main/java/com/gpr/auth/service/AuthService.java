@@ -198,7 +198,25 @@ public class AuthService {
             info = userInfoRepository.findByUserId(user.getId()).orElse(null);
         }
         grantAccessIfMissing(user, app);
+        linkCompanyIfPresent(user, req.getCompanyId());
         return userDirectoryService.toSummary(user, info);
+    }
+
+    /** Idempotently links the identity to the provisioning company so it appears in the user's
+     * company list at login (and the client can resolve the company slug instead of "guest"). */
+    private void linkCompanyIfPresent(User user, Long companyId) {
+        if (companyId == null) return;
+        if (userCompanyRepository.existsByUserIdAndCompanyId(user.getId(), companyId)) return;
+        Company company = companyRepository.findById(companyId)
+                .filter(Company::isActive)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "Unknown or inactive company " + companyId));
+        userCompanyRepository.save(UserCompany.builder()
+                .user(user)
+                .company(company)
+                .active(true)
+                .build());
+        log.info("createIdentity: linked identity {} to company {}", user.getId(), companyId);
     }
 
     @Transactional
@@ -280,6 +298,9 @@ public class AuthService {
         if (req.getBirthday() != null) info.setBirthday(req.getBirthday());
         if (req.getAddress() != null) info.setAddress(blankToNull(req.getAddress()));
         if (req.getGender() != null) info.setGender(blankToNull(req.getGender()));
+        if (req.getDisplayName() != null) info.setDisplayName(blankToNull(req.getDisplayName()));
+        if (req.getBio() != null) info.setBio(blankToNull(req.getBio()));
+        if (req.getProfilePhoto() != null) info.setProfilePhoto(blankToNull(req.getProfilePhoto()));
         userInfoRepository.save(info);
         return userDirectoryService.toSummary(user, info);
     }

@@ -43,7 +43,14 @@ public class UserInfo {
 
     private String gender;
 
-    @Column(name = "profile_photo")
+    /** Optional public display/vanity name shown to teammates (distinct from first/last name). */
+    @Column(name = "display_name")
+    private String displayName;
+
+    @Column(columnDefinition = "text")
+    private String bio;
+
+    @Column(name = "profile_photo", columnDefinition = "text")
     private String profilePhoto;
 
     @Column(name = "created_at", nullable = false, updatable = false)

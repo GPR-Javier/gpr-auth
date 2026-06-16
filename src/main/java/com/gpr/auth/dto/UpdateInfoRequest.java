@@ -12,4 +12,7 @@ public class UpdateInfoRequest {
     private LocalDate birthday;
     private String address;
     private String gender;
+    private String displayName;
+    private String bio;
+    private String profilePhoto;
 }

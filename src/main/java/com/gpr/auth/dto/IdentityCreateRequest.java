@@ -26,4 +26,8 @@ public class IdentityCreateRequest {
     /** Optional canonical personal info. */
     private LocalDate birthday;
     private String address;
+
+    /** Company the identity is being provisioned into — links a UserCompany membership so the
+     * employee resolves their tenant (and slug) at login. Null for company-less identities. */
+    private Long companyId;
 }

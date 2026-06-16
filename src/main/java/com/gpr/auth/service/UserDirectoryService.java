@@ -35,6 +35,14 @@ public class UserDirectoryService {
                 .toList();
     }
 
+    /** Resolves a single identity by login email — used by apps to map an authenticated email to a userId. */
+    @Transactional(readOnly = true)
+    public UserSummaryDto getByEmail(String email) {
+        return userRepository.findByEmail(email)
+                .map(u -> toSummary(u, userInfoRepository.findByUserId(u.getId()).orElse(null)))
+                .orElse(null);
+    }
+
     public UserSummaryDto toSummary(User user, UserInfo info) {
         return UserSummaryDto.builder()
                 .id(user.getId())
@@ -47,6 +55,9 @@ public class UserDirectoryService {
                 .birthday(info != null ? info.getBirthday() : null)
                 .address(info != null ? info.getAddress() : null)
                 .gender(info != null ? info.getGender() : null)
+                .displayName(info != null ? info.getDisplayName() : null)
+                .bio(info != null ? info.getBio() : null)
+                .profilePhoto(info != null ? info.getProfilePhoto() : null)
                 .build();
     }
 }
