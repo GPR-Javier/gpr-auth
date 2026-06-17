@@ -1,12 +1,12 @@
 package com.gpr.auth.service;
 
+import com.gpr.auth.client.WosHrOAuthClient;
 import com.gpr.auth.dto.CompanyInfo;
 import com.gpr.auth.dto.IdentityCreateRequest;
 import com.gpr.auth.dto.LoginResult;
 import com.gpr.auth.dto.RegisterRequest;
 import com.gpr.auth.dto.UpdateCredentialsRequest;
 import com.gpr.auth.dto.UpdateInfoRequest;
-import com.gpr.auth.client.WosHrOAuthClient;
 import com.gpr.auth.entity.App;
 import com.gpr.auth.entity.Company;
 import com.gpr.auth.entity.LoginMethod;
@@ -207,6 +207,16 @@ public class AuthService {
         grantAccessIfMissing(user, app);
         linkCompanyIfPresent(user, req.getCompanyId());
         return userDirectoryService.toSummary(user, info);
+    }
+
+    /** Links an existing identity (by id) to a company — idempotent. For app-driven promotions
+     * (e.g. an applicant being hired) so the user gains the company at the identity level and can
+     * select it / resolve the employee session without re-registering. */
+    @Transactional
+    public void linkCompany(Long userId, Long companyId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+        linkCompanyIfPresent(user, companyId);
     }
 
     /** Idempotently links the identity to the provisioning company so it appears in the user's

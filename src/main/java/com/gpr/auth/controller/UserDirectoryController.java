@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -52,5 +53,16 @@ public class UserDirectoryController {
         String appId = httpRequest.getHeader("X-App-Id");
         String clientId = (appId == null || appId.isBlank()) ? "workos" : appId.trim();
         return ResponseEntity.status(HttpStatus.CREATED).body(authService.createIdentity(request, clientId));
+    }
+
+    /**
+     * Idempotently links an existing identity to a company so it appears in the user's company list
+     * at login/session-resolve — used when an app (e.g. WorkOS hiring) promotes an applicant to an
+     * employee of that company. Service-to-service call.
+     */
+    @PostMapping("/{userId}/companies/{companyId}")
+    public ResponseEntity<Void> linkCompany(@PathVariable Long userId, @PathVariable Long companyId) {
+        authService.linkCompany(userId, companyId);
+        return ResponseEntity.noContent().build();
     }
 }
