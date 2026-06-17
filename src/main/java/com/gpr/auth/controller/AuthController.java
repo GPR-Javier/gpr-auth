@@ -121,6 +121,42 @@ public class AuthController {
         return ResponseEntity.ok(authService.updateInfo(currentUserId(request), body));
     }
 
+    /** Set (first time) or change the account password. */
+    @PutMapping("/me/password")
+    public ResponseEntity<Void> changePassword(
+            @RequestBody ChangePasswordRequest body, HttpServletRequest request) {
+        authService.changePassword(currentUserId(request), body.currentPassword(), body.newPassword());
+        return ResponseEntity.noContent().build();
+    }
+
+    public record ChangePasswordRequest(String currentPassword, String newPassword) {}
+
+    @GetMapping("/me/login-methods")
+    public ResponseEntity<AuthService.LoginMethodsView> loginMethods(HttpServletRequest request) {
+        return ResponseEntity.ok(authService.loginMethods(currentUserId(request)));
+    }
+
+    /** Disconnect a linked OAuth provider (can't remove the only remaining sign-in method). */
+    @org.springframework.web.bind.annotation.DeleteMapping("/me/login-methods/{provider}")
+    public ResponseEntity<Void> removeLoginMethod(
+            @PathVariable String provider, HttpServletRequest request) {
+        authService.removeLoginMethod(currentUserId(request), provider);
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Permanently delete the authenticated identity (retype email to confirm). Clears the session. */
+    @org.springframework.web.bind.annotation.DeleteMapping("/me")
+    public ResponseEntity<Void> deleteAccount(
+            @RequestBody DeleteAccountRequest body,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        authService.deleteAccount(currentUserId(request), body.confirm());
+        clearTokenCookies(response);
+        return ResponseEntity.noContent().build();
+    }
+
+    public record DeleteAccountRequest(String confirm) {}
+
     /** Resolves the authenticated identity id (sub) from the access-token cookie/bearer. */
     private Long currentUserId(HttpServletRequest request) {
         String token = extractCookie(request, "access_token");

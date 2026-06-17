@@ -5,5 +5,7 @@ public enum LoginMethodType {
     PASSWORD,
     GOOGLE,
     MICROSOFT,
+    /** Generic OAuth/OIDC provider (custom keys); the concrete provider is in {@code provider}. */
+    OAUTH,
     MAGIC_LINK
 }

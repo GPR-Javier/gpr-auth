@@ -11,4 +11,9 @@ public interface LoginMethodRepository extends JpaRepository<LoginMethod, Long> 
     List<LoginMethod> findByUserAndActiveTrue(User user);
 
     Optional<LoginMethod> findByUserAndType(User user, LoginMethodType type);
+
+    /** The OAuth login method matched by provider key + the provider's subject id. */
+    Optional<LoginMethod> findByProviderAndExternalSubject(String provider, String externalSubject);
+
+    boolean existsByUserAndProvider(User user, String provider);
 }

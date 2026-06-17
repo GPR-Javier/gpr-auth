@@ -26,6 +26,15 @@ jwt:
   access-token-expiration: 3600000
   refresh-token-expiration: 604800000
 
+# OAuth Phase 2: wos-hr holds the per-company provider config + decryptable secret and runs the
+# token exchange; gpr-auth runs the redirect + session. app.base-url is where users land afterward.
+wos-hr:
+  base-url: http://localhost:8083/api/hr
+internal:
+  service-token: wos-internal-dev-token
+app:
+  base-url: http://localhost:3000
+
 logging:
   level:
     org.springframework.security: DEBUG

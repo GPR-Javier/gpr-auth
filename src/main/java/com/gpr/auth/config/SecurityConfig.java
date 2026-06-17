@@ -46,6 +46,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/register", "/login", "/refresh", "/logout").permitAll()
+                        // OAuth sign-in: authorize / callback / link-confirm run pre-authentication.
+                        .requestMatchers("/oauth/**").permitAll()
                         // Internal cross-service identity API (dev): permitted for now —
                         // lock down with a service token / mTLS before production.
                         .requestMatchers(HttpMethod.GET, "/users/summaries").permitAll()

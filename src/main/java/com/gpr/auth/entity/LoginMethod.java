@@ -41,6 +41,10 @@ public class LoginMethod {
     @Column(name = "external_subject")
     private String externalSubject;
 
+    /** Provider key for OAuth methods (e.g. "google", "microsoft"); null for PASSWORD. */
+    @Column(name = "provider")
+    private String provider;
+
     @Column(nullable = false)
     private boolean active;
 

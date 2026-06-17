@@ -6,13 +6,16 @@ import com.gpr.auth.dto.LoginResult;
 import com.gpr.auth.dto.RegisterRequest;
 import com.gpr.auth.dto.UpdateCredentialsRequest;
 import com.gpr.auth.dto.UpdateInfoRequest;
+import com.gpr.auth.client.WosHrOAuthClient;
 import com.gpr.auth.entity.App;
 import com.gpr.auth.entity.Company;
+import com.gpr.auth.entity.LoginMethod;
 import com.gpr.auth.entity.RefreshToken;
 import com.gpr.auth.entity.User;
 import com.gpr.auth.entity.UserAppAccess;
 import com.gpr.auth.entity.UserCompany;
 import com.gpr.auth.entity.UserInfo;
+import com.gpr.auth.enums.LoginMethodType;
 import com.gpr.auth.enums.RegistrationMode;
 import com.gpr.auth.repository.AppRepository;
 import com.gpr.auth.repository.CompanyRepository;
@@ -29,6 +32,7 @@ import com.gpr.common.exception.InvalidTokenException;
 import com.gpr.common.exception.ResourceNotFoundException;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -62,6 +66,7 @@ public class AuthService {
     private final UserDirectoryService userDirectoryService;
     private final CompanyRepository companyRepository;
     private final UserCompanyRepository userCompanyRepository;
+    private final com.gpr.auth.repository.LoginMethodRepository loginMethodRepository;
 
     /** Tokens + the tenant-selection state the client needs after authenticating. */
     public record LoginOutcome(LoginResult result, List<CompanyInfo> companies,
@@ -157,6 +162,7 @@ public class AuthService {
                 .address(blankToNull(req.getAddress()))
                 .build());
         grantAccessIfMissing(user, app);
+        ensurePasswordMethod(user);
 
         log.info("Registered new identity {} and granted '{}' access", user.getEmail(), clientId);
         return issueTokens(user, null, clientId);
@@ -193,6 +199,7 @@ public class AuthService {
                     .birthday(req.getBirthday())
                     .address(blankToNull(req.getAddress()))
                     .build());
+            ensurePasswordMethod(user);
             log.info("createIdentity: provisioned identity {} ({})", email, user.getId());
         } else {
             info = userInfoRepository.findByUserId(user.getId()).orElse(null);
@@ -217,6 +224,273 @@ public class AuthService {
                 .active(true)
                 .build());
         log.info("createIdentity: linked identity {} to company {}", user.getId(), companyId);
+    }
+
+    // ── OAuth sign-in / linking ──────────────────────────────────────
+
+    /**
+     * Resolves an OAuth callback to a signed-in session, or signals that explicit linking is needed.
+     *   - (provider, sub) already linked → sign in.
+     *   - email matches an account: trusted provider + verified email → auto-link; else empty (confirm).
+     *   - no match → provision a new identity (no password) + link.
+     * Empty result ⇒ the caller must run the confirm-link flow.
+     */
+    @Transactional
+    public Optional<LoginOutcome> findOrLinkByOAuth(
+            String provider, WosHrOAuthClient.OAuthProfile profile, String clientId) {
+        Optional<LoginMethod> linked =
+                loginMethodRepository.findByProviderAndExternalSubject(provider, profile.sub());
+        if (linked.isPresent()) {
+            return Optional.of(outcomeForUser(linked.get().getUser(), clientId));
+        }
+
+        String email = profile.email() == null ? null : profile.email().toLowerCase().trim();
+        User byEmail = email == null ? null : userRepository.findByEmail(email).orElse(null);
+        if (byEmail != null) {
+            if (isTrusted(provider) && profile.emailVerified()) {
+                linkOAuth(byEmail, provider, profile.sub());
+                grantAccessIfMissing(byEmail, resolveApp(clientId));
+                return Optional.of(outcomeForUser(byEmail, clientId));
+            }
+            return Optional.empty(); // unverified or untrusted → require explicit linking
+        }
+
+        if (email == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Provider did not return an email.");
+        }
+        User user = provisionFromOAuth(provider, profile, email);
+        grantAccessIfMissing(user, resolveApp(clientId));
+        return Optional.of(outcomeForUser(user, clientId));
+    }
+
+    /** Confirm-link: prove ownership of the existing account (password), then attach the OAuth method. */
+    @Transactional
+    public LoginOutcome confirmLinkByOAuth(
+            String identifier, String password,
+            com.gpr.auth.security.OAuthStateService.PendingLink pending, String clientId) {
+        authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(identifier, password));
+        User user = userRepository.findByEmailOrUsernameOrPhone(identifier, identifier, identifier)
+                .orElseThrow(() -> new IllegalStateException("User disappeared after authentication"));
+        // Only link to the account that owns the provider's email.
+        if (pending.email() != null && !pending.email().equalsIgnoreCase(user.getEmail())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Confirm from the account that owns " + pending.email() + ".");
+        }
+        linkOAuth(user, pending.provider(), pending.sub());
+        grantAccessIfMissing(user, resolveApp(clientId));
+        return outcomeForUser(user, clientId);
+    }
+
+    private LoginOutcome outcomeForUser(User user, String clientId) {
+        List<CompanyInfo> companies = companiesForUser(user);
+        if (companies.size() == 1) {
+            Long companyId = companies.get(0).id();
+            return new LoginOutcome(issueTokens(user, companyId, clientId), companies, false, companyId);
+        }
+        return new LoginOutcome(issueTokens(user, null, clientId), companies, companies.size() > 1, null);
+    }
+
+    private void linkOAuth(User user, String provider, String sub) {
+        if (loginMethodRepository.existsByUserAndProvider(user, provider)) return;
+        loginMethodRepository.save(LoginMethod.builder()
+                .user(user)
+                .type(mapLoginType(provider))
+                .provider(provider)
+                .externalSubject(sub)
+                .active(true)
+                .build());
+    }
+
+    private User provisionFromOAuth(String provider, WosHrOAuthClient.OAuthProfile profile, String email) {
+        String[] names = splitName(profile.name());
+        User user = User.builder()
+                .email(email)
+                .username(generateUniqueUsername(names[0], names[1], null))
+                // No usable password — sign-in is via the provider. Placeholder satisfies NOT NULL.
+                .password(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
+                .active(true)
+                .build();
+        userRepository.save(user);
+        userInfoRepository.save(UserInfo.builder()
+                .user(user)
+                .firstName(names[0])
+                .lastName(names[1])
+                .profilePhoto(blankToNull(profile.picture()))
+                .build());
+        loginMethodRepository.save(LoginMethod.builder()
+                .user(user)
+                .type(mapLoginType(provider))
+                .provider(provider)
+                .externalSubject(profile.sub())
+                .active(true)
+                .build());
+        log.info("OAuth provisioned identity {} via {}", email, provider);
+        return user;
+    }
+
+    private static String[] splitName(String name) {
+        if (name == null || name.isBlank()) return new String[] {"New", "User"};
+        String[] parts = name.trim().split("\\s+", 2);
+        return new String[] {parts[0], parts.length > 1 ? parts[1] : ""};
+    }
+
+    /** Only these providers' verified-email claim is trusted for silent auto-link. */
+    private static boolean isTrusted(String provider) {
+        String p = provider == null ? "" : provider.toLowerCase();
+        return p.equals("google") || p.equals("microsoft");
+    }
+
+    private static LoginMethodType mapLoginType(String provider) {
+        String p = provider == null ? "" : provider.toLowerCase();
+        return switch (p) {
+            case "google" -> LoginMethodType.GOOGLE;
+            case "microsoft" -> LoginMethodType.MICROSOFT;
+            default -> LoginMethodType.OAUTH;
+        };
+    }
+
+    // ── account deletion (self-service) ──────────────────────────────
+
+    @jakarta.persistence.PersistenceContext
+    private jakarta.persistence.EntityManager entityManager;
+
+    /** Child entities to purge before the {@code users} row (all reference {@code user}). */
+    private static final String[] OWNED_ENTITIES = {
+        "RefreshToken", "LoginMethod", "UserInfo", "UserCompany", "UserAppAccess",
+        "PasswordHistory", "UserEducation", "UserWorkExperience", "UserCertificate"
+    };
+
+    /**
+     * Permanently deletes the authenticated identity and everything it owns in gpr_identity. The
+     * caller must retype their email/username to confirm. Frees the email for re-use (e.g. re-testing
+     * OAuth). Any per-app (WorkOS) profile keyed by this userId is left orphaned; a fresh sign-in
+     * mints a new userId, so it never collides.
+     */
+    @Transactional
+    public void deleteAccount(Long userId, String confirm) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+        boolean ok = confirm != null
+                && (confirm.trim().equalsIgnoreCase(user.getEmail())
+                        || confirm.trim().equalsIgnoreCase(user.getUsername()));
+        if (!ok) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Type your email to confirm account deletion.");
+        }
+        for (String entity : OWNED_ENTITIES) {
+            entityManager.createQuery("delete from " + entity + " x where x.user = :u")
+                    .setParameter("u", user)
+                    .executeUpdate();
+        }
+        userRepository.delete(user);
+        log.info("Deleted identity {} ({}) and all owned records", user.getEmail(), userId);
+    }
+
+    // ── login methods (self-service security screen) ─────────────────
+
+    public record LoginMethodsView(String email, boolean hasPassword, List<String> providers) {}
+
+    @Transactional(readOnly = true)
+    public LoginMethodsView loginMethods(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+        List<LoginMethod> active = loginMethodRepository.findByUserAndActiveTrue(user);
+        List<String> providers = active.stream()
+                .map(LoginMethod::getProvider)
+                .filter(p -> p != null && !p.isBlank())
+                .distinct()
+                .toList();
+        boolean passwordMethod = active.stream()
+                .anyMatch(m -> m.getType() == LoginMethodType.PASSWORD);
+        // Legacy fallback: a user with no OAuth methods can only sign in by password.
+        boolean hasPassword = passwordMethod || providers.isEmpty();
+        return new LoginMethodsView(user.getEmail(), hasPassword, providers);
+    }
+
+    /**
+     * Disconnects a sign-in method (an OAuth provider key, or "password"), refusing to remove the
+     * user's only remaining method. Disconnecting "password" also invalidates the stored credential.
+     */
+    @Transactional
+    public void removeLoginMethod(Long userId, String provider) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+        List<LoginMethod> active = loginMethodRepository.findByUserAndActiveTrue(user);
+
+        if ("password".equalsIgnoreCase(provider)) {
+            long oauthCount = active.stream().filter(m -> m.getProvider() != null).count();
+            if (oauthCount == 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Can't disconnect your only sign-in method.");
+            }
+            active.stream()
+                    .filter(m -> m.getType() == LoginMethodType.PASSWORD)
+                    .forEach(loginMethodRepository::delete);
+            // Make the credential unusable so password sign-in stops working.
+            user.setPassword(passwordEncoder.encode(java.util.UUID.randomUUID().toString()));
+            userRepository.save(user);
+            return;
+        }
+
+        LoginMethod target = active.stream()
+                .filter(m -> provider != null && provider.equalsIgnoreCase(m.getProvider()))
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, provider + " is not connected."));
+        boolean passwordMethod = active.stream()
+                .anyMatch(m -> m.getType() == LoginMethodType.PASSWORD);
+        long otherProviders = active.stream()
+                .filter(m -> m.getProvider() != null && !m.getProvider().equalsIgnoreCase(provider))
+                .count();
+        if (!passwordMethod && otherProviders == 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Can't disconnect your only sign-in method.");
+        }
+        loginMethodRepository.delete(target);
+    }
+
+    /**
+     * Sets or changes the account password. When the user already has a password, the current one
+     * must be supplied and match; when they have none (e.g. OAuth-only), this *adds* password sign-in.
+     */
+    @Transactional
+    public void changePassword(Long userId, String currentPassword, String newPassword) {
+        if (newPassword == null || newPassword.length() < 8) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Password must be at least 8 characters.");
+        }
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+        List<LoginMethod> active = loginMethodRepository.findByUserAndActiveTrue(user);
+        boolean passwordMethod = active.stream()
+                .anyMatch(m -> m.getType() == LoginMethodType.PASSWORD);
+        boolean hasPassword = passwordMethod
+                || active.stream().noneMatch(m -> m.getProvider() != null);
+        if (hasPassword
+                && (currentPassword == null
+                        || !passwordEncoder.matches(currentPassword, user.getPassword()))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Current password is incorrect.");
+        }
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        LoginMethod pm = loginMethodRepository.findByUserAndType(user, LoginMethodType.PASSWORD)
+                .orElseGet(() -> LoginMethod.builder()
+                        .user(user).type(LoginMethodType.PASSWORD).active(true).build());
+        pm.setSecretHash(user.getPassword());
+        loginMethodRepository.save(pm);
+    }
+
+    /** Records that the user has a password login (idempotent). secretHash mirrors the bcrypt on User. */
+    private void ensurePasswordMethod(User user) {
+        if (loginMethodRepository.findByUserAndType(user, LoginMethodType.PASSWORD).isPresent()) return;
+        loginMethodRepository.save(LoginMethod.builder()
+                .user(user)
+                .type(LoginMethodType.PASSWORD)
+                .secretHash(user.getPassword())
+                .active(true)
+                .build());
     }
 
     @Transactional
