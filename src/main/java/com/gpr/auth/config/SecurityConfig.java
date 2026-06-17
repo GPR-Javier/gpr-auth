@@ -45,7 +45,7 @@ public class SecurityConfig {
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/register", "/login", "/refresh", "/logout").permitAll()
+                        .requestMatchers("/register", "/login", "/refresh", "/logout", "/reactivate").permitAll()
                         // OAuth sign-in: authorize / callback / link-confirm run pre-authentication.
                         .requestMatchers("/oauth/**").permitAll()
                         // Internal cross-service identity API (dev): permitted for now —

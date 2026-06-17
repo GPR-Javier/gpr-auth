@@ -70,15 +70,28 @@ public class AuthService {
 
     /** Tokens + the tenant-selection state the client needs after authenticating. */
     public record LoginOutcome(LoginResult result, List<CompanyInfo> companies,
-                               boolean requiresCompanySelection, Long companyId) {}
+                               boolean requiresCompanySelection, Long companyId,
+                               boolean requiresReactivation) {}
 
     @Transactional
     public LoginOutcome login(AuthRequest request, String clientId) {
         // The submitted identifier (carried in the email field) may be email, username, or phone.
         String identifier = request.getEmail();
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(identifier, request.getPassword())
-        );
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(identifier, request.getPassword())
+            );
+        } catch (org.springframework.security.authentication.DisabledException ex) {
+            // A soft-deleted account is "disabled". If the credentials are right, don't fail — signal
+            // the client to offer recovery (or a fresh start) instead of a dead-end login error.
+            User deleted = userRepository.findByEmailOrUsernameOrPhone(identifier, identifier, identifier)
+                    .orElse(null);
+            if (deleted != null && deleted.getDeletedAt() != null
+                    && passwordEncoder.matches(request.getPassword(), deleted.getPassword())) {
+                return new LoginOutcome(null, List.of(), false, null, true);
+            }
+            throw ex; // genuinely disabled, or wrong password for a deleted account
+        }
 
         User user = userRepository.findByEmailOrUsernameOrPhone(identifier, identifier, identifier)
                 .orElseThrow(() -> new IllegalStateException("User disappeared after authentication"));
@@ -89,10 +102,10 @@ public class AuthService {
         if (companies.size() == 1) {
             // Single company → select it now and mint a tenant-scoped token.
             Long companyId = companies.get(0).id();
-            return new LoginOutcome(issueTokens(user, companyId, clientId), companies, false, companyId);
+            return new LoginOutcome(issueTokens(user, companyId, clientId), companies, false, companyId, false);
         }
         // 0 (no company yet) or many (must choose) → identity token without a company.
-        return new LoginOutcome(issueTokens(user, null, clientId), companies, companies.size() > 1, null);
+        return new LoginOutcome(issueTokens(user, null, clientId), companies, companies.size() > 1, null, false);
     }
 
     /** Selects (or switches to) a company: validates access, re-mints the token with companyId. */
@@ -103,7 +116,7 @@ public class AuthService {
         if (!canAccess(user, companyId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No access to company " + companyId);
         }
-        return new LoginOutcome(issueTokens(user, companyId, clientId), companiesForUser(user), false, companyId);
+        return new LoginOutcome(issueTokens(user, companyId, clientId), companiesForUser(user), false, companyId, false);
     }
 
     @Transactional(readOnly = true)
@@ -296,9 +309,9 @@ public class AuthService {
         List<CompanyInfo> companies = companiesForUser(user);
         if (companies.size() == 1) {
             Long companyId = companies.get(0).id();
-            return new LoginOutcome(issueTokens(user, companyId, clientId), companies, false, companyId);
+            return new LoginOutcome(issueTokens(user, companyId, clientId), companies, false, companyId, false);
         }
-        return new LoginOutcome(issueTokens(user, null, clientId), companies, companies.size() > 1, null);
+        return new LoginOutcome(issueTokens(user, null, clientId), companies, companies.size() > 1, null, false);
     }
 
     private void linkOAuth(User user, String provider, String sub) {
@@ -365,17 +378,16 @@ public class AuthService {
     @jakarta.persistence.PersistenceContext
     private jakarta.persistence.EntityManager entityManager;
 
-    /** Child entities to purge before the {@code users} row (all reference {@code user}). */
-    private static final String[] OWNED_ENTITIES = {
+    /** Everything an identity owns — purged before the {@code users} row on a hard delete / fresh start. */
+    private static final String[] HARD_PURGE = {
         "RefreshToken", "LoginMethod", "UserInfo", "UserCompany", "UserAppAccess",
         "PasswordHistory", "UserEducation", "UserWorkExperience", "UserCertificate"
     };
 
     /**
-     * Permanently deletes the authenticated identity and everything it owns in gpr_identity. The
-     * caller must retype their email/username to confirm. Frees the email for re-use (e.g. re-testing
-     * OAuth). Any per-app (WorkOS) profile keyed by this userId is left orphaned; a fresh sign-in
-     * mints a new userId, so it never collides.
+     * SOFT-deletes the authenticated identity: marks it deleted + deactivated and kills all sessions,
+     * but RETAINS every owned record so the user can recover it by signing in again (see
+     * {@link #reactivate}). The caller must retype their email/username to confirm.
      */
     @Transactional
     public void deleteAccount(Long userId, String confirm) {
@@ -388,13 +400,75 @@ public class AuthService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Type your email to confirm account deletion.");
         }
-        for (String entity : OWNED_ENTITIES) {
-            entityManager.createQuery("delete from " + entity + " x where x.user = :u")
-                    .setParameter("u", user)
-                    .executeUpdate();
+        user.setActive(false);
+        user.setDeletedAt(LocalDateTime.now());
+        userRepository.save(user);
+        // Invalidate existing sessions so the deactivated account can't keep acting on stale tokens.
+        entityManager.createQuery("delete from RefreshToken x where x.user = :u")
+                .setParameter("u", user)
+                .executeUpdate();
+        log.info("Soft-deleted identity {} ({}) — data retained for recovery", user.getEmail(), userId);
+    }
+
+    /**
+     * Recovers a soft-deleted account on re-login (credentials re-verified). {@code fresh=false}
+     * restores everything as-is. {@code fresh=true} is a TRUE hard delete: the account and everything
+     * it owns are erased, then a blank identity is re-provisioned under the same login (new userId) —
+     * any WorkOS data keyed by the old userId is harmlessly orphaned. Returns a login outcome.
+     */
+    @Transactional
+    public LoginOutcome reactivate(AuthRequest request, boolean fresh, String clientId) {
+        String identifier = request.getEmail();
+        User user = userRepository.findByEmailOrUsernameOrPhone(identifier, identifier, identifier)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials."));
+        if (user.getDeletedAt() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "This account isn't pending reactivation.");
         }
-        userRepository.delete(user);
-        log.info("Deleted identity {} ({}) and all owned records", user.getEmail(), userId);
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials.");
+        }
+        App app = resolveApp(clientId);
+
+        if (fresh) {
+            // Reuse the login identifiers + the just-verified password for the clean account.
+            String email = user.getEmail();
+            String username = user.getUsername();
+            String phone = user.getPhone();
+            String passwordHash = passwordEncoder.encode(request.getPassword());
+
+            for (String entity : HARD_PURGE) {
+                entityManager.createQuery("delete from " + entity + " x where x.user = :u")
+                        .setParameter("u", user)
+                        .executeUpdate();
+            }
+            userRepository.delete(user);
+            entityManager.flush(); // release the unique email/username before re-inserting
+
+            User recreated = userRepository.save(User.builder()
+                    .email(email).username(username).phone(phone)
+                    .password(passwordHash).active(true).build());
+            userInfoRepository.save(UserInfo.builder().user(recreated).build());
+            ensurePasswordMethod(recreated);
+            grantAccessIfMissing(recreated, app);
+            log.info("Fresh start: hard-deleted identity {} and re-provisioned it as new id {}",
+                    email, recreated.getId());
+            // Brand-new account → no companies → identity token (careers/applicant portal).
+            return new LoginOutcome(issueTokens(recreated, null, clientId), List.of(), false, null, false);
+        }
+
+        // Recover: restore the account exactly as it was.
+        user.setActive(true);
+        user.setDeletedAt(null);
+        userRepository.save(user);
+        grantAccessIfMissing(user, app);
+        log.info("Reactivated identity {} ({}) — data restored", user.getEmail(), user.getId());
+
+        List<CompanyInfo> companies = companiesForUser(user);
+        if (companies.size() == 1) {
+            Long companyId = companies.get(0).id();
+            return new LoginOutcome(issueTokens(user, companyId, clientId), companies, false, companyId, false);
+        }
+        return new LoginOutcome(issueTokens(user, null, clientId), companies, companies.size() > 1, null, false);
     }
 
     // ── login methods (self-service security screen) ─────────────────

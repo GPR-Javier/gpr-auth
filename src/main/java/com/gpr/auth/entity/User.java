@@ -1,7 +1,7 @@
 package com.gpr.auth.entity;
 
+import com.gpr.common.entity.Auditable;
 import jakarta.persistence.*;
-import java.time.LocalDateTime;
 import lombok.*;
 
 /**
@@ -11,6 +11,9 @@ import lombok.*;
  * (1:1); app-specific data (employeeId, roles, profile overrides) lives per-app keyed by {@code id}.
  *
  * <p>Editing these fields changes how the user signs in to ALL apps — the UI warns accordingly.
+ *
+ * <p>Lifecycle columns (created/updated/deleted) come from {@link Auditable}. {@code deletedAt} drives
+ * soft-delete + recovery on re-login.
  */
 @Entity
 @Table(name = "users")
@@ -19,7 +22,8 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class User {
+@EqualsAndHashCode(callSuper = false)
+public class User extends Auditable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -48,21 +52,4 @@ public class User {
     @Column(name = "is_super_admin", nullable = false)
     @Builder.Default
     private boolean superAdmin = false;
-
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
-
-    @PrePersist
-    void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-    }
-
-    @PreUpdate
-    void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 }

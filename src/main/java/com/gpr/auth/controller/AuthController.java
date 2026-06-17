@@ -56,9 +56,31 @@ public class AuthController {
             HttpServletResponse response
     ) {
         AuthService.LoginOutcome outcome = authService.login(request, resolveClientId(httpRequest));
+        // Soft-deleted account: no tokens — the client prompts recover-or-fresh and calls /reactivate.
+        if (outcome.requiresReactivation()) {
+            return ResponseEntity.ok(new CompanyLoginResponse(false, List.of(), null, true));
+        }
         setTokenCookies(response, outcome.result().accessToken(), outcome.result().refreshToken());
         return ResponseEntity.ok(new CompanyLoginResponse(
-                outcome.requiresCompanySelection(), outcome.companies(), outcome.companyId()));
+                outcome.requiresCompanySelection(), outcome.companies(), outcome.companyId(), false));
+    }
+
+    /**
+     * Recovers a soft-deleted account on re-login. {@code mode=fresh} wipes accumulated app data for a
+     * clean start; anything else restores everything. Re-verifies the password, then logs the user in.
+     */
+    @PostMapping("/reactivate")
+    public ResponseEntity<CompanyLoginResponse> reactivate(
+            @Valid @RequestBody AuthRequest request,
+            @RequestParam(defaultValue = "recover") String mode,
+            HttpServletRequest httpRequest,
+            HttpServletResponse response
+    ) {
+        AuthService.LoginOutcome outcome = authService.reactivate(
+                request, "fresh".equalsIgnoreCase(mode), resolveClientId(httpRequest));
+        setTokenCookies(response, outcome.result().accessToken(), outcome.result().refreshToken());
+        return ResponseEntity.ok(new CompanyLoginResponse(
+                outcome.requiresCompanySelection(), outcome.companies(), outcome.companyId(), false));
     }
 
     /** Companies the authenticated user may act within (after login). */
@@ -78,7 +100,7 @@ public class AuthController {
                 currentUserId(httpRequest), body.getCompanyId(), resolveClientId(httpRequest));
         setAccessTokenCookie(response, outcome.result().accessToken());
         return ResponseEntity.ok(new CompanyLoginResponse(
-                outcome.requiresCompanySelection(), outcome.companies(), outcome.companyId()));
+                outcome.requiresCompanySelection(), outcome.companies(), outcome.companyId(), false));
     }
 
     @PostMapping("/refresh")
