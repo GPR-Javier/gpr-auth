@@ -1,8 +1,8 @@
 package com.gpr.auth.entity;
 
 import com.gpr.auth.enums.LoginMethodType;
+import com.gpr.kernel.entity.Auditable;
 import jakarta.persistence.*;
-import java.time.LocalDateTime;
 import lombok.*;
 
 /**
@@ -19,7 +19,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class LoginMethod {
+public class LoginMethod extends Auditable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -47,12 +47,4 @@ public class LoginMethod {
 
     @Column(nullable = false)
     private boolean active;
-
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-    @PrePersist
-    void onCreate() {
-        createdAt = LocalDateTime.now();
-    }
 }

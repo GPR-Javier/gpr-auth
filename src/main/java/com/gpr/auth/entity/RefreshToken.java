@@ -1,5 +1,6 @@
 package com.gpr.auth.entity;
 
+import com.gpr.kernel.entity.Auditable;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import lombok.*;
@@ -12,7 +13,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class RefreshToken {
+public class RefreshToken extends Auditable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -31,14 +32,6 @@ public class RefreshToken {
     @Column(nullable = false)
     @Builder.Default
     private boolean revoked = false;
-
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-    @PrePersist
-    void onCreate() {
-        createdAt = LocalDateTime.now();
-    }
 
     public boolean isExpired() {
         return LocalDateTime.now().isAfter(expiresAt);

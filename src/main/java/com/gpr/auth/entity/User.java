@@ -1,6 +1,6 @@
 package com.gpr.auth.entity;
 
-import com.gpr.common.entity.Auditable;
+import com.gpr.kernel.entity.Auditable;
 import jakarta.persistence.*;
 import lombok.*;
 

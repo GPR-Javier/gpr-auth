@@ -1,7 +1,7 @@
 package com.gpr.auth.entity;
 
+import com.gpr.kernel.entity.Auditable;
 import jakarta.persistence.*;
-import java.time.LocalDateTime;
 import lombok.*;
 
 /**
@@ -16,7 +16,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Company {
+public class Company extends Auditable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -54,21 +54,4 @@ public class Company {
 
     @Column(columnDefinition = "text")
     private String address;
-
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
-
-    @PrePersist
-    void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-    }
-
-    @PreUpdate
-    void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 }

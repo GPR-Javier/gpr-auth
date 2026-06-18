@@ -1,7 +1,7 @@
 package com.gpr.auth.entity;
 
+import com.gpr.kernel.entity.Auditable;
 import jakarta.persistence.*;
-import java.time.LocalDateTime;
 import lombok.*;
 
 /**
@@ -19,7 +19,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class PasswordHistory {
+public class PasswordHistory extends Auditable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -31,12 +31,4 @@ public class PasswordHistory {
 
     @Column(name = "password_hash", nullable = false)
     private String passwordHash;
-
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-    @PrePersist
-    void onCreate() {
-        createdAt = LocalDateTime.now();
-    }
 }
