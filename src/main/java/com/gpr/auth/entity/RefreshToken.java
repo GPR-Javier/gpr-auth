@@ -4,6 +4,7 @@ import com.gpr.kernel.entity.Auditable;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 /** Opaque refresh token bound to an identity. Owned by gpr-auth (gpr_identity DB). */
 @Entity
@@ -12,7 +13,7 @@ import lombok.*;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@SuperBuilder
 public class RefreshToken extends Auditable {
 
     @Id

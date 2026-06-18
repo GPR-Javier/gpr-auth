@@ -1,8 +1,10 @@
 package com.gpr.auth.entity;
 
+import com.gpr.kernel.entity.Auditable;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 /**
  * Grants a user access to a specific app. One identity, many access grants — adding an app means
@@ -19,8 +21,8 @@ import lombok.*;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
-public class UserAppAccess {
+@SuperBuilder
+public class UserAppAccess extends Auditable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -33,9 +35,6 @@ public class UserAppAccess {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "app_id", nullable = false)
     private App app;
-
-    @Column(nullable = false)
-    private boolean active;
 
     @Column(name = "granted_at", nullable = false, updatable = false)
     private LocalDateTime grantedAt;

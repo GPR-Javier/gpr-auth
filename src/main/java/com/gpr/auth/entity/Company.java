@@ -3,6 +3,7 @@ package com.gpr.auth.entity;
 import com.gpr.kernel.entity.Auditable;
 import jakarta.persistence.*;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 /**
  * A tenant. Companies are owned by gpr-auth and SHARED across every app — each app scopes its own
@@ -15,7 +16,7 @@ import lombok.*;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@SuperBuilder
 public class Company extends Auditable {
 
     @Id
@@ -27,9 +28,6 @@ public class Company extends Auditable {
 
     @Column(nullable = false, unique = true)
     private String slug;
-
-    @Column(name = "is_active", nullable = false)
-    private boolean active;
 
     // ── Descriptive profile (the "My Company" screen) — editable by a company admin via WorkOS ──
     private String tagline;

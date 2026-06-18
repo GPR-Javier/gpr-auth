@@ -3,6 +3,7 @@ package com.gpr.auth.entity;
 import com.gpr.kernel.entity.Auditable;
 import jakarta.persistence.*;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 /**
  * Central LOGIN CREDENTIALS. Owned by gpr-auth ({@code gpr_identity} DB) — the shared sign-in
@@ -21,7 +22,7 @@ import lombok.*;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@SuperBuilder
 @EqualsAndHashCode(callSuper = false)
 public class User extends Auditable {
 
@@ -44,9 +45,6 @@ public class User extends Auditable {
     /** Always BCrypt hashed — never stored or returned as plain text. */
     @Column(nullable = false)
     private String password;
-
-    @Column(name = "is_active", nullable = false)
-    private boolean active;
 
     /** Platform super admin — transcends tenants, manages companies/apps, exempt from app authz. */
     @Column(name = "is_super_admin", nullable = false)

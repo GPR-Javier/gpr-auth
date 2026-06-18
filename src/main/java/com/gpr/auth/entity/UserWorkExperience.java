@@ -3,6 +3,7 @@ import com.gpr.kernel.entity.Auditable;
 import jakarta.persistence.*;
 import java.time.LocalDate;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 /**
  * A user's work-experience entry — identity-level data (shared across every app the identity belongs
@@ -17,7 +18,7 @@ import lombok.*;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@SuperBuilder
 public class UserWorkExperience extends Auditable {
 
     @Id

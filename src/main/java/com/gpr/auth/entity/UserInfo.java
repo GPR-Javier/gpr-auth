@@ -3,6 +3,7 @@ import com.gpr.kernel.entity.Auditable;
 import jakarta.persistence.*;
 import java.time.LocalDate;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 /**
  * Canonical personal details for an identity (1:1 with {@link User}, real FK — same DB). This is the
@@ -16,7 +17,7 @@ import lombok.*;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@SuperBuilder
 public class UserInfo extends Auditable {
 
     @Id

@@ -1,8 +1,10 @@
 package com.gpr.auth.entity;
 
+import com.gpr.kernel.entity.Auditable;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 /**
  * Membership: which companies an identity belongs to (many-to-many). A user with several
@@ -19,8 +21,8 @@ import lombok.*;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
-public class UserCompany {
+@SuperBuilder
+public class UserCompany extends Auditable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -33,9 +35,6 @@ public class UserCompany {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "company_id", nullable = false)
     private Company company;
-
-    @Column(nullable = false)
-    private boolean active;
 
     @Column(name = "joined_at", nullable = false, updatable = false)
     private LocalDateTime joinedAt;

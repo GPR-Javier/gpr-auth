@@ -4,6 +4,7 @@ import com.gpr.auth.enums.LoginMethodType;
 import com.gpr.kernel.entity.Auditable;
 import jakarta.persistence.*;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 /**
  * One way a user can sign in. A user has many methods (PASSWORD today; OAuth/magic-link later).
@@ -18,7 +19,7 @@ import lombok.*;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@SuperBuilder
 public class LoginMethod extends Auditable {
 
     @Id
@@ -45,6 +46,4 @@ public class LoginMethod extends Auditable {
     @Column(name = "provider")
     private String provider;
 
-    @Column(nullable = false)
-    private boolean active;
 }

@@ -4,6 +4,7 @@ import com.gpr.auth.enums.RegistrationMode;
 import com.gpr.kernel.entity.Auditable;
 import jakarta.persistence.*;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 /**
  * A product that authenticates against this identity provider (e.g. WorkOS, and later pet-vet,
@@ -16,7 +17,7 @@ import lombok.*;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@SuperBuilder
 public class App extends Auditable {
 
     @Id
@@ -34,6 +35,4 @@ public class App extends Auditable {
     @Column(name = "registration_mode", nullable = false)
     private RegistrationMode registrationMode;
 
-    @Column(nullable = false)
-    private boolean active;
 }

@@ -3,6 +3,7 @@ package com.gpr.auth.entity;
 import com.gpr.kernel.entity.Auditable;
 import jakarta.persistence.*;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 /**
  * A previously-used password hash, for reuse prevention. On a password change, BCrypt-match the
@@ -18,7 +19,7 @@ import lombok.*;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@SuperBuilder
 public class PasswordHistory extends Auditable {
 
     @Id
