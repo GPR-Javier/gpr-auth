@@ -3,7 +3,7 @@ package com.gpr.auth.controller;
 import com.gpr.auth.dto.IdentityCreateRequest;
 import com.gpr.auth.service.AuthService;
 import com.gpr.auth.service.UserDirectoryService;
-import com.gpr.common.dto.UserSummaryDto;
+import com.gpr.kernel.dto.UserSummaryDto;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;

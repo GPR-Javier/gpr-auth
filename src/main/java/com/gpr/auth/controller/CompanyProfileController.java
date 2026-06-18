@@ -2,7 +2,7 @@ package com.gpr.auth.controller;
 
 import com.gpr.auth.dto.CompanyInfo;
 import com.gpr.auth.service.CompanyService;
-import com.gpr.common.dto.CompanyProfileDto;
+import com.gpr.kernel.dto.CompanyProfileDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;

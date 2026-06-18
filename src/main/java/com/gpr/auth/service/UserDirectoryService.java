@@ -4,7 +4,7 @@ import com.gpr.auth.entity.User;
 import com.gpr.auth.entity.UserInfo;
 import com.gpr.auth.repository.UserInfoRepository;
 import com.gpr.auth.repository.UserRepository;
-import com.gpr.common.dto.UserSummaryDto;
+import com.gpr.kernel.dto.UserSummaryDto;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;

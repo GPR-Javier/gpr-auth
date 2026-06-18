@@ -22,10 +22,11 @@
     </properties>
 
     <dependencies>
-        <!-- Shared entities, DTOs, enums, constants -->
+        <!-- Neutral shared kernel (Auditable, auth DTOs, base exceptions). The IdP depends ONLY on
+             this app-agnostic module — never on WorkOS-specific wos-common. -->
         <dependency>
             <groupId>com.gpr</groupId>
-            <artifactId>wos-common</artifactId>
+            <artifactId>gpr-common</artifactId>
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
 
