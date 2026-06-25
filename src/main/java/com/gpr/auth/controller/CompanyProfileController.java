@@ -35,6 +35,12 @@ public class CompanyProfileController {
         return ResponseEntity.ok(companyService.getProfile(id));
     }
 
+    /** The founding Company Admin's identity id — apps use it to grant their admin role on first provisioning. */
+    @GetMapping("/{id}/admin")
+    public ResponseEntity<Long> adminUserId(@PathVariable Long id) {
+        return ResponseEntity.ok(companyService.getAdminUserId(id));
+    }
+
     @PutMapping("/{id}/profile")
     public ResponseEntity<CompanyProfileDto> update(
             @PathVariable Long id, @RequestBody CompanyProfileDto dto) {

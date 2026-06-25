@@ -67,11 +67,16 @@ public class AuthService {
     private final CompanyRepository companyRepository;
     private final UserCompanyRepository userCompanyRepository;
     private final com.gpr.auth.repository.LoginMethodRepository loginMethodRepository;
+    private final com.gpr.auth.client.WosHrAccountClient wosHrAccountClient;
 
     /** Tokens + the tenant-selection state the client needs after authenticating. */
     public record LoginOutcome(LoginResult result, List<CompanyInfo> companies,
                                boolean requiresCompanySelection, Long companyId,
                                boolean requiresReactivation) {}
+
+    /** Tokenless outcome telling the client to prompt recover-or-fresh (account is soft-deleted). */
+    private static final LoginOutcome REACTIVATION_SIGNAL =
+            new LoginOutcome(null, List.of(), false, null, true);
 
     @Transactional
     public LoginOutcome login(AuthRequest request, String clientId) {
@@ -264,13 +269,18 @@ public class AuthService {
         Optional<LoginMethod> linked =
                 loginMethodRepository.findByProviderAndExternalSubject(provider, profile.sub());
         if (linked.isPresent()) {
-            return Optional.of(outcomeForUser(linked.get().getUser(), clientId));
+            User user = linked.get().getUser();
+            // Soft-deleted: the provider login proves ownership, so don't dead-end — signal the client
+            // to prompt recover-or-fresh and run the OAuth reactivation flow instead of signing in.
+            if (user.getDeletedAt() != null) return Optional.of(REACTIVATION_SIGNAL);
+            return Optional.of(outcomeForUser(user, clientId));
         }
 
         String email = profile.email() == null ? null : profile.email().toLowerCase().trim();
         User byEmail = email == null ? null : userRepository.findByEmail(email).orElse(null);
         if (byEmail != null) {
             if (isTrusted(provider) && profile.emailVerified()) {
+                if (byEmail.getDeletedAt() != null) return Optional.of(REACTIVATION_SIGNAL);
                 linkOAuth(byEmail, provider, profile.sub());
                 grantAccessIfMissing(byEmail, resolveApp(clientId));
                 return Optional.of(outcomeForUser(byEmail, clientId));
@@ -291,15 +301,27 @@ public class AuthService {
     public LoginOutcome confirmLinkByOAuth(
             String identifier, String password,
             com.gpr.auth.security.OAuthStateService.PendingLink pending, String clientId) {
+        // A soft-deleted account is "disabled", so authenticate() would throw. Resolve it up front so a
+        // confirm-link on a deleted account recovers it (password = ownership proof) instead of failing.
+        User deleted = userRepository.findByEmailOrUsernameOrPhone(identifier, identifier, identifier)
+                .filter(u -> u.getDeletedAt() != null)
+                .orElse(null);
+        if (deleted != null) {
+            if (!passwordEncoder.matches(password, deleted.getPassword())) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials.");
+            }
+            requireOwnsEmail(deleted, pending.email());
+            App app = resolveApp(clientId);
+            linkOAuth(deleted, pending.provider(), pending.sub());
+            return recoverAndSignIn(deleted, app, clientId);
+        }
+
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(identifier, password));
         User user = userRepository.findByEmailOrUsernameOrPhone(identifier, identifier, identifier)
                 .orElseThrow(() -> new IllegalStateException("User disappeared after authentication"));
         // Only link to the account that owns the provider's email.
-        if (pending.email() != null && !pending.email().equalsIgnoreCase(user.getEmail())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Confirm from the account that owns " + pending.email() + ".");
-        }
+        requireOwnsEmail(user, pending.email());
         linkOAuth(user, pending.provider(), pending.sub());
         grantAccessIfMissing(user, resolveApp(clientId));
         return outcomeForUser(user, clientId);
@@ -411,52 +433,73 @@ public class AuthService {
     }
 
     /**
-     * Recovers a soft-deleted account on re-login (credentials re-verified). {@code fresh=false}
-     * restores everything as-is. {@code fresh=true} is a TRUE hard delete: the account and everything
-     * it owns are erased, then a blank identity is re-provisioned under the same login (new userId) —
-     * any WorkOS data keyed by the old userId is harmlessly orphaned. Returns a login outcome.
+     * Recovers a soft-deleted account on re-login (password re-verified). {@code fresh=false} restores
+     * everything as-is; {@code fresh=true} hard-deletes it and re-provisions a blank identity under the
+     * same login. Returns a login outcome. See {@link #reactivateByOAuth} for the provider-login path.
      */
     @Transactional
     public LoginOutcome reactivate(AuthRequest request, boolean fresh, String clientId) {
         String identifier = request.getEmail();
         User user = userRepository.findByEmailOrUsernameOrPhone(identifier, identifier, identifier)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials."));
-        if (user.getDeletedAt() == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "This account isn't pending reactivation.");
-        }
+        requirePendingReactivation(user);
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials.");
         }
         App app = resolveApp(clientId);
 
         if (fresh) {
-            // Reuse the login identifiers + the just-verified password for the clean account.
-            String email = user.getEmail();
-            String username = user.getUsername();
-            String phone = user.getPhone();
-            String passwordHash = passwordEncoder.encode(request.getPassword());
-
-            for (String entity : HARD_PURGE) {
-                entityManager.createQuery("delete from " + entity + " x where x.user = :u")
-                        .setParameter("u", user)
-                        .executeUpdate();
-            }
-            userRepository.delete(user);
-            entityManager.flush(); // release the unique email/username before re-inserting
-
-            User recreated = userRepository.save(User.builder()
-                    .email(email).username(username).phone(phone)
-                    .password(passwordHash).active(true).build());
-            userInfoRepository.save(UserInfo.builder().user(recreated).build());
+            User recreated = hardResetIdentity(user, app);
             ensurePasswordMethod(recreated);
-            grantAccessIfMissing(recreated, app);
-            log.info("Fresh start: hard-deleted identity {} and re-provisioned it as new id {}",
-                    email, recreated.getId());
             // Brand-new account → no companies → identity token (careers/applicant portal).
             return new LoginOutcome(issueTokens(recreated, null, clientId), List.of(), false, null, false);
         }
+        return recoverAndSignIn(user, app, clientId);
+    }
 
-        // Recover: restore the account exactly as it was.
+    /**
+     * OAuth counterpart to {@link #reactivate}: a soft-deleted account whose ownership was just proven
+     * by a provider sign-in (the caller validated the signed callback). {@code fresh} hard-deletes and
+     * re-provisions, re-linking the provider; otherwise restores and (re)links the provider.
+     */
+    @Transactional
+    public LoginOutcome reactivateByOAuth(
+            String provider, String sub, String email, boolean fresh, String clientId) {
+        User user = loginMethodRepository.findByProviderAndExternalSubject(provider, sub)
+                .map(LoginMethod::getUser)
+                .orElseGet(() -> email == null ? null
+                        : userRepository.findByEmail(email.toLowerCase().trim()).orElse(null));
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No account to reactivate.");
+        }
+        requirePendingReactivation(user);
+        App app = resolveApp(clientId);
+
+        if (fresh) {
+            User recreated = hardResetIdentity(user, app);
+            linkOAuth(recreated, provider, sub); // keep the provider usable on the clean account
+            return new LoginOutcome(issueTokens(recreated, null, clientId), List.of(), false, null, false);
+        }
+        linkOAuth(user, provider, sub); // covers the trusted-email recover (no method existed yet)
+        return recoverAndSignIn(user, app, clientId);
+    }
+
+    /** Guards the confirm-link/recover flows: only link to the account that owns the provider's email. */
+    private void requireOwnsEmail(User user, String providerEmail) {
+        if (providerEmail != null && !providerEmail.equalsIgnoreCase(user.getEmail())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Confirm from the account that owns " + providerEmail + ".");
+        }
+    }
+
+    private void requirePendingReactivation(User user) {
+        if (user.getDeletedAt() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "This account isn't pending reactivation.");
+        }
+    }
+
+    /** Recover: restore the account exactly as it was, then sign in. */
+    private LoginOutcome recoverAndSignIn(User user, App app, String clientId) {
         user.setActive(true);
         user.setDeletedAt(null);
         userRepository.save(user);
@@ -469,6 +512,38 @@ public class AuthService {
             return new LoginOutcome(issueTokens(user, companyId, clientId), companies, false, companyId, false);
         }
         return new LoginOutcome(issueTokens(user, null, clientId), companies, companies.size() > 1, null, false);
+    }
+
+    /**
+     * TRUE hard delete: erase the identity + everything it owns (gpr-auth AND, best-effort, WorkOS),
+     * then re-provision a blank identity under the same login (new userId). Keeps the existing password
+     * hash so password and OAuth-only accounts both re-provision cleanly.
+     */
+    private User hardResetIdentity(User user, App app) {
+        String email = user.getEmail();
+        String username = user.getUsername();
+        String phone = user.getPhone();
+        String passwordHash = user.getPassword();
+        Long oldUserId = user.getId();
+
+        for (String entity : HARD_PURGE) {
+            entityManager.createQuery("delete from " + entity + " x where x.user = :u")
+                    .setParameter("u", user)
+                    .executeUpdate();
+        }
+        userRepository.delete(user);
+        entityManager.flush(); // release the unique email/username before re-inserting
+        // Cross-service: wipe WorkOS data keyed by the old userId so it isn't left orphaned.
+        wosHrAccountClient.purgeUserData(oldUserId);
+
+        User recreated = userRepository.save(User.builder()
+                .email(email).username(username).phone(phone)
+                .password(passwordHash).active(true).build());
+        userInfoRepository.save(UserInfo.builder().user(recreated).build());
+        grantAccessIfMissing(recreated, app);
+        log.info("Fresh start: hard-deleted identity {} ({}) and re-provisioned it as new id {}",
+                email, oldUserId, recreated.getId());
+        return recreated;
     }
 
     // ── login methods (self-service security screen) ─────────────────

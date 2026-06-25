@@ -107,6 +107,15 @@ public class OAuthController {
         Optional<LoginOutcome> outcome =
                 authService.findOrLinkByOAuth(provider, profile, APP_CLIENT_ID);
         if (outcome.isPresent()) {
+            // Soft-deleted account: provider login proved ownership — hand a signed token to the FE,
+            // which prompts recover-or-fresh and calls /oauth/reactivate/confirm. No session yet.
+            if (outcome.get().requiresReactivation()) {
+                String token = stateService.signPendingReactivation(
+                        sd.slug(), provider, profile.sub(), profile.email());
+                response.sendRedirect(
+                        appBaseUrl + "/" + sd.slug() + "/login/reactivate?token=" + enc(token));
+                return;
+            }
             setTokenCookies(response,
                     outcome.get().result().accessToken(),
                     outcome.get().result().refreshToken());
@@ -137,6 +146,27 @@ public class OAuthController {
     public record LinkConfirmRequest(String token, String identifier, String password) {}
 
     public record LinkConfirmResponse(boolean requiresCompanySelection, Long companyId) {}
+
+    /**
+     * Reactivate a soft-deleted account whose ownership was just proven by an OAuth sign-in. The signed
+     * token (issued by the callback only after a successful exchange) IS the proof — no password needed.
+     * {@code mode=fresh} wipes accumulated data for a clean start; anything else restores everything.
+     */
+    @PostMapping("/reactivate/confirm")
+    public ResponseEntity<LinkConfirmResponse> reactivateConfirm(
+            @RequestBody ReactivateConfirmRequest req, HttpServletResponse response) {
+        OAuthStateService.PendingReactivation pending =
+                stateService.verifyPendingReactivation(req.token());
+        LoginOutcome outcome = authService.reactivateByOAuth(
+                pending.provider(), pending.sub(), pending.email(),
+                "fresh".equalsIgnoreCase(req.mode()), APP_CLIENT_ID);
+        setTokenCookies(response,
+                outcome.result().accessToken(), outcome.result().refreshToken());
+        return ResponseEntity.ok(new LinkConfirmResponse(
+                outcome.requiresCompanySelection(), outcome.companyId()));
+    }
+
+    public record ReactivateConfirmRequest(String token, String mode) {}
 
     // ── helpers ──────────────────────────────────────────────────────────
 

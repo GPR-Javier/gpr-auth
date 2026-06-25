@@ -65,7 +65,17 @@ public class CompanyService {
                 .orElseThrow(() -> new ResourceNotFoundException("Admin identity vanished: " + admin.getId()));
         addMembership(adminUser, company);
 
+        // Record the founding admin so each app can grant them its admin role on first provisioning.
+        company.setAdminUserId(admin.getId());
+        companyRepository.save(company);
+
         return new CompanyAdminResult(company.getId(), admin.getId(), company.getName(), company.getSlug());
+    }
+
+    /** The founding Company Admin's identity id, or null if not recorded — used by apps to grant their admin role. */
+    @Transactional(readOnly = true)
+    public Long getAdminUserId(Long companyId) {
+        return findCompany(companyId).getAdminUserId();
     }
 
     @Transactional(readOnly = true)

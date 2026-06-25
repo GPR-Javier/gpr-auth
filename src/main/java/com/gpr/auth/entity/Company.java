@@ -29,6 +29,14 @@ public class Company extends Auditable {
     @Column(nullable = false, unique = true)
     private String slug;
 
+    /**
+     * The identity (gpr-auth user id) of this company's founding Company Admin. Recorded at creation so
+     * each app can grant that user its admin role when it provisions the company's resources — no
+     * cross-DB FK, resolved by id. Null only for legacy companies created before this was tracked.
+     */
+    @Column(name = "admin_user_id")
+    private Long adminUserId;
+
     // ── Descriptive profile (the "My Company" screen) — editable by a company admin via WorkOS ──
     private String tagline;
 

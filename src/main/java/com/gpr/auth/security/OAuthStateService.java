@@ -82,6 +82,33 @@ public class OAuthStateService {
                 c.get("picture", String.class));
     }
 
+    // ── pending reactivation (soft-deleted account signed in via provider) ─────────────
+
+    public String signPendingReactivation(String slug, String provider, String sub, String email) {
+        return Jwts.builder()
+                .claim("typ", "oauth_reactivate")
+                .claim("slug", slug)
+                .claim("provider", provider)
+                .claim("sub", sub)
+                .claim("email", email)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + TTL_MS))
+                .signWith(key)
+                .compact();
+    }
+
+    public record PendingReactivation(String slug, String provider, String sub, String email) {}
+
+    public PendingReactivation verifyPendingReactivation(String token) {
+        Claims c = parse(token);
+        require("oauth_reactivate".equals(c.get("typ", String.class)), "Invalid reactivation token");
+        return new PendingReactivation(
+                c.get("slug", String.class),
+                c.get("provider", String.class),
+                c.get("sub", String.class),
+                c.get("email", String.class));
+    }
+
     private Claims parse(String token) {
         return Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
     }

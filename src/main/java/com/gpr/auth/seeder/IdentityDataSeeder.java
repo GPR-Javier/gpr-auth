@@ -53,8 +53,8 @@ public class IdentityDataSeeder implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        User admin = seedAdminIdentity();        // admin@company.com → id 1 on a fresh DB
-        Company company = seedDefaultCompany();  // GPR tenant → id 1 on a fresh DB
+        User admin = seedAdminIdentity();         // admin@company.com → id 1 on a fresh DB
+        Company company = seedDefaultCompany(admin); // GPR tenant → id 1 on a fresh DB
         User superAdmin = seedSuperAdmin();      // platform super admin
         App workos = seedWorkosApp();
         backfillUserAppAccess(workos);
@@ -110,11 +110,12 @@ public class IdentityDataSeeder implements ApplicationRunner {
         return su;
     }
 
-    private Company seedDefaultCompany() {
+    private Company seedDefaultCompany(User admin) {
         Company company = companyRepository.findBySlug(DEFAULT_COMPANY_SLUG).orElseGet(Company::new);
         company.setName("GPR");
         company.setSlug(DEFAULT_COMPANY_SLUG);
         company.setActive(true);
+        company.setAdminUserId(admin.getId()); // the founding Company Admin (WorkOS grants them the role)
         Company saved = companyRepository.save(company);
         log.info("IdentitySeeder: upserted default company '{}' (id={})", DEFAULT_COMPANY_SLUG, saved.getId());
         return saved;
