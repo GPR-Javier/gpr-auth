@@ -51,6 +51,7 @@ public class SecurityConfig {
                         // Internal cross-service identity API (dev): permitted for now —
                         // lock down with a service token / mTLS before production.
                         .requestMatchers(HttpMethod.GET, "/users/summaries").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/users/search").permitAll()
                         .requestMatchers(HttpMethod.GET, "/users/by-email").permitAll()
                         .requestMatchers(HttpMethod.POST, "/users").permitAll()
                         .requestMatchers(HttpMethod.POST, "/users/*/companies/*").permitAll()
