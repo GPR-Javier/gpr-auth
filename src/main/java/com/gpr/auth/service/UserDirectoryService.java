@@ -27,8 +27,9 @@ public class UserDirectoryService {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
-        Map<Long, UserInfo> infoByUser = userInfoRepository.findAll().stream()
-                .filter(i -> i.getUser() != null)
+        // Fetch only the profile rows we need (indexed user_id IN …) rather than scanning the whole
+        // user_info table. The user is a LAZY proxy, but reading its id uses the FK without a query.
+        Map<Long, UserInfo> infoByUser = userInfoRepository.findByUser_IdIn(ids).stream()
                 .collect(Collectors.toMap(i -> i.getUser().getId(), Function.identity(), (a, b) -> a));
         return userRepository.findAllById(ids).stream()
                 .map(user -> toSummary(user, infoByUser.get(user.getId())))

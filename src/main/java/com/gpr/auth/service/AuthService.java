@@ -131,8 +131,7 @@ public class AuthService {
 
     private List<CompanyInfo> companiesForUser(User user) {
         if (user.isSuperAdmin()) {
-            return companyRepository.findAll().stream()
-                    .filter(Company::isActive)
+            return companyRepository.findByActiveTrue().stream()
                     .map(c -> new CompanyInfo(c.getId(), c.getName(), c.getSlug()))
                     .toList();
         }

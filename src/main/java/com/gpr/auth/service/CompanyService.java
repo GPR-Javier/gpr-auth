@@ -81,8 +81,7 @@ public class CompanyService {
     @Transactional(readOnly = true)
     public List<CompanyInfo> companiesForUser(Long userId, boolean superAdmin) {
         if (superAdmin) {
-            return companyRepository.findAll().stream()
-                    .filter(Company::isActive)
+            return companyRepository.findByActiveTrue().stream()
                     .map(this::toInfo)
                     .toList();
         }
