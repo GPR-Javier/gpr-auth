@@ -36,6 +36,19 @@ public class UserDirectoryService {
                 .toList();
     }
 
+    /**
+     * Identity ids matching {@code q} across email/username/full-name (case-insensitive). Returns an
+     * empty list for a blank term so callers can skip the directory hop. Backs cross-service user
+     * search (e.g. the WorkOS admin user table), since personal name lives here, not in the app.
+     */
+    @Transactional(readOnly = true)
+    public List<Long> searchIds(String q) {
+        if (q == null || q.isBlank()) {
+            return List.of();
+        }
+        return userRepository.searchIds(q.trim());
+    }
+
     /** Resolves a single identity by login email — used by apps to map an authenticated email to a userId. */
     @Transactional(readOnly = true)
     public UserSummaryDto getByEmail(String email) {

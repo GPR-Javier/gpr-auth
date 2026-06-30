@@ -38,6 +38,12 @@ public class UserDirectoryController {
         return ResponseEntity.ok(userDirectoryService.getSummaries(ids));
     }
 
+    /** Identity ids matching {@code q} (email/username/full-name) — backs cross-service user search. */
+    @GetMapping("/search")
+    public ResponseEntity<List<Long>> search(@RequestParam String q) {
+        return ResponseEntity.ok(userDirectoryService.searchIds(q));
+    }
+
     /** Resolve a single identity by login email → projection (404 when no such identity). */
     @GetMapping("/by-email")
     public ResponseEntity<UserSummaryDto> getByEmail(@RequestParam String email) {
